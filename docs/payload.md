@@ -52,7 +52,8 @@ Delivery is at-least-once and in order: while one message cannot be delivered, l
       "skin": "racing_17",
       "laps": 8,
       "totalTimeMs": 900100,
-      "bestLapMs": 110500
+      "bestLapMs": 110500,
+      "gridPosition": 2
     }
   ],
   "laps": [
@@ -72,13 +73,19 @@ Delivery is at-least-once and in order: while one message cannot be delivered, l
 - `otherSteamId` is `null` for contact with the environment. A car-to-car contact is usually reported by
   both cars, each from its own point of view.
 - `bestLapMs` is `null` when the driver set no lap time.
+- `gridPosition` is the starting position among the drivers in the message (1 = pole). It is `null` outside races.
 
 ## Classification rules
 
 The server refreshes its own position field only when a lap is completed, so the plugin computes the order.
 
-- Race: drivers who took the chequered flag first, ordered by laps (more is better), then total time, then
-  car id. Drivers who did not take the flag follow in the same order and get `status: "notClassified"`.
+- Race: drivers who took the chequered flag first, ordered by laps (more is better), then total time.
+  Drivers who did not take the flag follow in the same order and get `status: "notClassified"`.
+- Race ties go to the driver who started further ahead. This matters most for first-lap retirements, who
+  all have 0 laps and no time. The server builds the grid from the qualifying order, or from the entry list
+  order when there was no qualifying, so race control decides that fallback by the order of the entry list
+  (for example the order in which drivers entered).
 - Practice and qualifying: ordered by best lap; drivers without a lap time come last as `notClassified`.
+  Equal lap times keep the entry list order, because that is how the server itself orders the race grid.
 - Drivers who never connected are not in the message. The platform knows the entry list and marks them as
   "did not start".

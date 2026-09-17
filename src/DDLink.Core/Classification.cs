@@ -25,7 +25,9 @@ public sealed record DriverResult(
     uint Laps,
     uint TotalTimeMs,
     uint BestLapMs,
-    bool TookChequeredFlag);
+    bool TookChequeredFlag,
+    /// <summary>Index of the car in the session's starting grid as built by the server (0 = pole). Counts empty slots.</summary>
+    int GridIndex);
 
 public sealed record ClassifiedDriver(int Position, DriverStatus Status, DriverResult Driver);
 
@@ -34,6 +36,11 @@ public sealed record ClassifiedDriver(int Position, DriverStatus Status, DriverR
 /// lap is completed, so the order is derived from laps and times instead.
 /// Drivers who never connected are not part of the input: the platform knows the entry list and
 /// marks them as "did not start".
+///
+/// Ties: in a race the driver who started further ahead wins (very common among first-lap
+/// retirements, who all have 0 laps and no time). The server builds that grid from the qualifying
+/// order, or from the entry list order when there was no qualifying. In practice and qualifying a
+/// tie follows the entry list order, because that is how the server itself orders the race grid.
 /// </summary>
 public static class Classification
 {
@@ -50,6 +57,7 @@ public static class Classification
                 .OrderBy(r => r.TookChequeredFlag ? 0 : 1)
                 .ThenByDescending(r => r.Laps)
                 .ThenBy(r => r.TotalTimeMs)
+                .ThenBy(r => r.GridIndex)
                 .ThenBy(r => r.CarId)
             : drivers
                 .OrderBy(r => r.BestLapMs)

@@ -15,7 +15,15 @@ public static class SessionReport
         IReadOnlyList<CollisionEntry> collisions,
         IReadOnlyList<ConnectionEntry> connections)
     {
-        var classification = Classification.Classify(session.Kind, results)
+        var classified = Classification.Classify(session.Kind, results);
+
+        // The grid index counts empty slots; report the rank among the drivers who took part.
+        var gridPositions = classified
+            .OrderBy(c => c.Driver.GridIndex).ThenBy(c => c.Driver.CarId)
+            .Select((c, index) => (c.Driver.CarId, Position: index + 1))
+            .ToDictionary(x => x.CarId, x => x.Position);
+
+        var classification = classified
             .Select(c => new ClassificationEntry(
                 c.Position,
                 c.Status,
@@ -25,7 +33,8 @@ public static class SessionReport
                 c.Driver.Skin,
                 c.Driver.Laps,
                 c.Driver.TotalTimeMs,
-                c.Driver.BestLapMs < Classification.NoLapTime ? c.Driver.BestLapMs : null))
+                c.Driver.BestLapMs < Classification.NoLapTime ? c.Driver.BestLapMs : null,
+                session.Kind == SessionKind.Race ? gridPositions[c.Driver.CarId] : null))
             .ToList();
 
         if (classification.Count == 0)

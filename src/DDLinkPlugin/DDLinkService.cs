@@ -99,11 +99,17 @@ public class DDLinkService : BackgroundService
             _ => SessionKind.Practice,
         };
 
+        // Starting grid as the server built it: qualifying order, or entry list order without qualifying.
+        var gridIndex = (previous.Grid ?? _entryCarManager.EntryCars)
+            .Select((car, index) => (car.SessionId, index))
+            .ToDictionary(x => x.SessionId, x => x.index);
+
         var results = previous.Results.Select(pair =>
         {
             var car = _entryCarManager.EntryCars[pair.Key];
             var r = pair.Value;
-            return new DriverResult(pair.Key, r.Guid, r.Name, car.Model, car.Skin, r.NumLaps, r.TotalTime, r.BestLap, r.HasCompletedLastLap);
+            return new DriverResult(pair.Key, r.Guid, r.Name, car.Model, car.Skin, r.NumLaps, r.TotalTime, r.BestLap,
+                r.HasCompletedLastLap, gridIndex[pair.Key]);
         });
 
         var server = _serverConfiguration.Server;

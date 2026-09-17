@@ -4,8 +4,8 @@ namespace DDLink.Core.Tests;
 
 public class ClassificationTests
 {
-    private static DriverResult Car(byte id, uint laps, uint totalMs, bool flag = true, uint best = 95_000, ulong steamId = 0)
-        => new(id, steamId == 0 ? 76561190000000000UL + id : steamId, $"Driver {id}", "ks_mazda_mx5_cup", "skin", laps, totalMs, best, flag);
+    private static DriverResult Car(byte id, uint laps, uint totalMs, bool flag = true, uint best = 95_000, ulong steamId = 0, int? grid = null)
+        => new(id, steamId == 0 ? 76561190000000000UL + id : steamId, $"Driver {id}", "ks_mazda_mx5_cup", "skin", laps, totalMs, best, flag, grid ?? id);
 
     private static byte[] Order(IEnumerable<ClassifiedDriver> c) => c.Select(d => d.Driver.CarId).ToArray();
 
@@ -57,19 +57,47 @@ public class ClassificationTests
     }
 
     [Fact]
-    public void Dead_heat_is_resolved_deterministically_by_car_id()
+    public void Dead_heat_goes_to_the_driver_who_started_further_ahead()
     {
-        var a = Classification.Classify(SessionKind.Race, [Car(7, 3, 300_000), Car(4, 3, 300_000)]);
-        var b = Classification.Classify(SessionKind.Race, [Car(4, 3, 300_000), Car(7, 3, 300_000)]);
+        // Same laps, same total time: car 7 started from pole (grid index 0), car 4 from fourth.
+        var a = Classification.Classify(SessionKind.Race, [Car(4, 3, 300_000, grid: 3), Car(7, 3, 300_000, grid: 0)]);
+        var b = Classification.Classify(SessionKind.Race, [Car(7, 3, 300_000, grid: 0), Car(4, 3, 300_000, grid: 3)]);
 
-        Assert.Equal(new byte[] { 4, 7 }, Order(a));
+        Assert.Equal(new byte[] { 7, 4 }, Order(a));
         Assert.Equal(Order(a), Order(b));
+    }
+
+    [Fact]
+    public void First_lap_retirements_are_ordered_by_grid_position()
+    {
+        // Nobody completed a lap: laps and total time are 0 for all three, a very common tie.
+        var result = Classification.Classify(SessionKind.Race,
+        [
+            Car(1, 0, 0, flag: false, grid: 2),
+            Car(2, 0, 0, flag: false, grid: 0),
+            Car(3, 0, 0, flag: false, grid: 1),
+        ]);
+
+        Assert.Equal(new byte[] { 2, 3, 1 }, Order(result));
+    }
+
+    [Fact]
+    public void Qualifying_tie_follows_entry_list_order_like_the_grid_the_server_builds()
+    {
+        // The server sorts the race grid by best lap with a stable sort, so equal times keep entry list order.
+        var result = Classification.Classify(SessionKind.Qualifying,
+        [
+            Car(5, 4, 0, flag: false, best: 95_800),
+            Car(2, 4, 0, flag: false, best: 95_800),
+        ]);
+
+        Assert.Equal(new byte[] { 2, 5 }, Order(result));
     }
 
     [Fact]
     public void Empty_entry_list_slots_are_dropped()
     {
-        var empty = new DriverResult(9, 0, "", "ks_mazda_mx5_cup", "skin", 0, 0, Classification.NoLapTime, false);
+        var empty = new DriverResult(9, 0, "", "ks_mazda_mx5_cup", "skin", 0, 0, Classification.NoLapTime, false, 9);
         var result = Classification.Classify(SessionKind.Race, [Car(1, 3, 300_000), empty]);
 
         Assert.Single(result);
