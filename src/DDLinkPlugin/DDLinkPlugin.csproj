@@ -1,0 +1,27 @@
+<!-- Mirrors the csproj of AssettoServer's own plugins. The AssettoServer sources are referenced via
+     $(AssettoServerSrc); scripts/check.sh clones them at the pinned server version. -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <EnableDynamicLoading>true</EnableDynamicLoading>
+        <SelfContained>false</SelfContained>
+        <DebugType>embedded</DebugType>
+        <PathMap>$(MSBuildProjectDirectory)=$(MSBuildProjectName)</PathMap>
+        <AssettoServerSrc Condition="'$(AssettoServerSrc)' == ''">/src/AssettoServer</AssettoServerSrc>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\DDLink.Core\DDLink.Core.csproj" />
+        <ProjectReference Include="$(AssettoServerSrc)/AssettoServer.Shared/AssettoServer.Shared.csproj">
+            <Private>false</Private>
+            <ExcludeAssets>runtime</ExcludeAssets>
+        </ProjectReference>
+        <ProjectReference Include="$(AssettoServerSrc)/AssettoServer/AssettoServer.csproj">
+            <Private>false</Private>
+            <ExcludeAssets>runtime</ExcludeAssets>
+        </ProjectReference>
+    </ItemGroup>
+</Project>

@@ -1,0 +1,159 @@
+using AssettoServer.Network.Tcp;
+using AssettoServer.Server;
+using AssettoServer.Server.Configuration;
+using AssettoServer.Shared.Model;
+using DDLink.Core;
+using Microsoft.Extensions.Hosting;
+using Serilog;
+
+namespace DDLinkPlugin;
+
+/// <summary>
+/// Records laps, collisions and connections during a session and hands one signed message per
+/// finished session to the outbox.
+/// </summary>
+public class DDLinkService : BackgroundService
+{
+    private readonly DDLinkConfiguration _configuration;
+    private readonly ACServerConfiguration _serverConfiguration;
+    private readonly SessionManager _sessionManager;
+    private readonly EntryCarManager _entryCarManager;
+    private readonly Outbox _outbox;
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(30) };
+
+    private readonly object _lock = new();
+    private List<LapEntry> _laps = [];
+    private List<CollisionEntry> _collisions = [];
+    private List<ConnectionEntry> _connections = [];
+    private readonly SemaphoreSlim _wakeUp = new(0);
+
+    public DDLinkService(
+        DDLinkConfiguration configuration,
+        ACServerConfiguration serverConfiguration,
+        SessionManager sessionManager,
+        EntryCarManager entryCarManager)
+    {
+        _configuration = configuration;
+        _serverConfiguration = serverConfiguration;
+        _sessionManager = sessionManager;
+        _entryCarManager = entryCarManager;
+        _outbox = new Outbox(configuration.SpoolDirectory, new Uri(configuration.Endpoint), configuration.Secret, _http,
+            message => Log.Warning("DD Link: {Message}", message));
+
+        _entryCarManager.ClientConnected += OnClientConnected;
+        _entryCarManager.ClientDisconnected += OnClientDisconnected;
+        _sessionManager.SessionChanged += OnSessionChanged;
+    }
+
+    private long SessionTime => _sessionManager.CurrentSession.SessionTimeMilliseconds;
+
+    private void OnClientConnected(ACTcpClient client, EventArgs args)
+    {
+        client.LapCompleted += OnLapCompleted;
+        client.Collision += OnCollision;
+        lock (_lock) _connections.Add(new ConnectionEntry(client.Guid.ToString(), client.Name ?? "", true, SessionTime));
+    }
+
+    private void OnClientDisconnected(ACTcpClient client, EventArgs args)
+    {
+        lock (_lock) _connections.Add(new ConnectionEntry(client.Guid.ToString(), client.Name ?? "", false, SessionTime));
+    }
+
+    private void OnLapCompleted(ACTcpClient client, LapCompletedEventArgs args)
+    {
+        // The session manager has already counted this lap when the event fires.
+        var lapNumber = _sessionManager.CurrentSession.Results?[client.SessionId].NumLaps ?? 0;
+        lock (_lock) _laps.Add(new LapEntry(client.Guid.ToString(), lapNumber, args.Packet.LapTime, args.Packet.Cuts, SessionTime));
+    }
+
+    private void OnCollision(ACTcpClient client, CollisionEventArgs args)
+    {
+        var other = args.TargetCar?.Client?.Guid.ToString();
+        lock (_lock)
+        {
+            _collisions.Add(new CollisionEntry(client.Guid.ToString(), other, args.Speed,
+                args.Position.X, args.Position.Y, args.Position.Z, SessionTime));
+        }
+    }
+
+    private void OnSessionChanged(SessionManager sender, SessionChangedEventArgs args)
+    {
+        List<LapEntry> laps;
+        List<CollisionEntry> collisions;
+        List<ConnectionEntry> connections;
+        lock (_lock)
+        {
+            (laps, _laps) = (_laps, []);
+            (collisions, _collisions) = (_collisions, []);
+            (connections, _connections) = (_connections, []);
+        }
+
+        var previous = args.PreviousSession;
+        if (previous?.Results == null || previous.Configuration.Type == SessionType.Booking)
+            return;
+
+        var kind = previous.Configuration.Type switch
+        {
+            SessionType.Race => SessionKind.Race,
+            SessionType.Qualifying => SessionKind.Qualifying,
+            _ => SessionKind.Practice,
+        };
+
+        var results = previous.Results.Select(pair =>
+        {
+            var car = _entryCarManager.EntryCars[pair.Key];
+            var r = pair.Value;
+            return new DriverResult(pair.Key, r.Guid, r.Name, car.Model, car.Skin, r.NumLaps, r.TotalTime, r.BestLap, r.HasCompletedLastLap);
+        });
+
+        var server = _serverConfiguration.Server;
+        var session = new SessionInfo(kind, previous.Configuration.Name ?? "", server.Track, server.TrackConfig,
+            previous.Configuration.Laps, previous.Configuration.Time, previous.SessionTimeMilliseconds);
+
+        var message = SessionReport.Create(_configuration.EventId, _configuration.ServerId, session, results, laps, collisions, connections);
+        if (message != null)
+            _ = EnqueueAsync(message);
+    }
+
+    private async Task EnqueueAsync(SessionCompletedMessage message)
+    {
+        try
+        {
+            await _outbox.EnqueueAsync(message.Id, MessageJson.Serialize(message));
+            Log.Information("DD Link: queued {Kind} result with {Count} drivers", message.Session.Kind, message.Classification.Count);
+            _wakeUp.Release();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "DD Link: could not store the session result");
+        }
+    }
+
+    // Delivery loop: send what is pending, back off while the platform is unreachable.
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        var failedAttempts = 0;
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await _outbox.FlushAsync(stoppingToken);
+                failedAttempts = _outbox.PendingCount == 0 ? 0 : failedAttempts + 1;
+
+                if (failedAttempts == 0)
+                    await _wakeUp.WaitAsync(stoppingToken);
+                else
+                    await _wakeUp.WaitAsync(Outbox.RetryDelay(failedAttempts), stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "DD Link: delivery loop failed");
+                await Task.Delay(Outbox.RetryDelay(3), stoppingToken);
+            }
+        }
+    }
+}
