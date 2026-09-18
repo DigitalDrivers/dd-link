@@ -25,6 +25,7 @@ public class DDLinkService : BackgroundService
     private List<LapEntry> _laps = [];
     private List<CollisionEntry> _collisions = [];
     private List<ConnectionEntry> _connections = [];
+    private StintLedger _ledger = new();
     private readonly SemaphoreSlim _wakeUp = new(0);
 
     public DDLinkService(
@@ -40,10 +41,14 @@ public class DDLinkService : BackgroundService
         _outbox = new Outbox(configuration.SpoolDirectory, new Uri(configuration.Endpoint), configuration.Secret, _http,
             message => Log.Warning("DD Link: {Message}", message));
 
+        // The session manager subscribed to ClientConnected in its own constructor, before ours ran, so its
+        // handler runs first: it starts the slot's result from zero for a new driver, then we restore it.
         _entryCarManager.ClientConnected += OnClientConnected;
         _entryCarManager.ClientDisconnected += OnClientDisconnected;
         _sessionManager.SessionChanged += OnSessionChanged;
     }
+
+    private static CarSnapshot SnapshotOf(EntryCarResult r) => new(r.NumLaps, r.TotalTime, r.BestLap, r.LastLap, r.HasCompletedLastLap, r.RacePos);
 
     private long SessionTime => _sessionManager.CurrentSession.SessionTimeMilliseconds;
 
@@ -51,19 +56,58 @@ public class DDLinkService : BackgroundService
     {
         client.LapCompleted += OnLapCompleted;
         client.Collision += OnCollision;
-        lock (_lock) _connections.Add(new ConnectionEntry(client.Guid.ToString(), client.Name ?? "", true, SessionTime));
+        StintLedger ledger;
+        lock (_lock)
+        {
+            _connections.Add(new ConnectionEntry(client.Guid.ToString(), client.Name ?? "", true, SessionTime));
+            ledger = _ledger;
+        }
+
+        // Driver swap: a crew-mate takes over the car and continues with what it had achieved.
+        var before = ledger.DriverJoined(client.SessionId, client.Guid, client.Name ?? "");
+        var result = _sessionManager.CurrentSession.Results?[client.SessionId];
+        if (before == null || result == null)
+            return;
+        if (result.Guid != client.Guid)
+        {
+            Log.Warning("DD Link: slot {Slot} still belongs to another driver, the car's laps were not restored", client.SessionId);
+            return;
+        }
+        result.NumLaps = before.Laps;
+        result.TotalTime = before.TotalTimeMs;
+        result.BestLap = before.BestLapMs;
+        result.LastLap = before.LastLapMs;
+        result.HasCompletedLastLap = before.TookChequeredFlag;
+        result.RacePos = before.RacePos;
+        Log.Information("DD Link: {Name} took over car {Slot} with {Laps} laps", client.Name, client.SessionId, before.Laps);
     }
 
     private void OnClientDisconnected(ACTcpClient client, EventArgs args)
     {
-        lock (_lock) _connections.Add(new ConnectionEntry(client.Guid.ToString(), client.Name ?? "", false, SessionTime));
+        StintLedger ledger;
+        lock (_lock)
+        {
+            _connections.Add(new ConnectionEntry(client.Guid.ToString(), client.Name ?? "", false, SessionTime));
+            ledger = _ledger;
+        }
+        var result = _sessionManager.CurrentSession.Results?[client.SessionId];
+        if (result != null && result.Guid == client.Guid)
+            ledger.DriverLeft(client.SessionId, SnapshotOf(result));
     }
 
     private void OnLapCompleted(ACTcpClient client, LapCompletedEventArgs args)
     {
         // The session manager has already counted this lap when the event fires.
-        var lapNumber = _sessionManager.CurrentSession.Results?[client.SessionId].NumLaps ?? 0;
-        lock (_lock) _laps.Add(new LapEntry(client.Guid.ToString(), lapNumber, args.Packet.LapTime, args.Packet.Cuts, SessionTime));
+        var result = _sessionManager.CurrentSession.Results?[client.SessionId];
+        var lapNumber = result?.NumLaps ?? 0;
+        StintLedger ledger;
+        lock (_lock)
+        {
+            _laps.Add(new LapEntry(client.Guid.ToString(), lapNumber, args.Packet.LapTime, args.Packet.Cuts, SessionTime));
+            ledger = _ledger;
+        }
+        if (result != null)
+            ledger.LapCompleted(client.SessionId, client.Guid, client.Name ?? "", SnapshotOf(result));
     }
 
     private void OnCollision(ACTcpClient client, CollisionEventArgs args)
@@ -81,11 +125,20 @@ public class DDLinkService : BackgroundService
         List<LapEntry> laps;
         List<CollisionEntry> collisions;
         List<ConnectionEntry> connections;
+        StintLedger ledger;
+        var nextLedger = new StintLedger();
+        // Drivers who stay connected start the new session in their cars.
+        foreach (var car in _entryCarManager.EntryCars)
+        {
+            if (car.Client is { } connected)
+                nextLedger.DriverJoined(car.SessionId, connected.Guid, connected.Name ?? "");
+        }
         lock (_lock)
         {
             (laps, _laps) = (_laps, []);
             (collisions, _collisions) = (_collisions, []);
             (connections, _connections) = (_connections, []);
+            (ledger, _ledger) = (_ledger, nextLedger);
         }
 
         var previous = args.PreviousSession;
@@ -109,7 +162,7 @@ public class DDLinkService : BackgroundService
             var car = _entryCarManager.EntryCars[pair.Key];
             var r = pair.Value;
             return new DriverResult(pair.Key, r.Guid, r.Name, car.Model, car.Skin, r.NumLaps, r.TotalTime, r.BestLap,
-                r.HasCompletedLastLap, gridIndex[pair.Key]);
+                r.HasCompletedLastLap, gridIndex[pair.Key], ledger.CrewOf(pair.Key));
         });
 
         var server = _serverConfiguration.Server;

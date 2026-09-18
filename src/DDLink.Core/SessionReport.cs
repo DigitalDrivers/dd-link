@@ -34,7 +34,8 @@ public static class SessionReport
                 c.Driver.Laps,
                 c.Driver.TotalTimeMs,
                 c.Driver.BestLapMs < Classification.NoLapTime ? c.Driver.BestLapMs : null,
-                session.Kind == SessionKind.Race ? gridPositions[c.Driver.CarId] : null))
+                session.Kind == SessionKind.Race ? gridPositions[c.Driver.CarId] : null,
+                c.Driver.Crew is { Count: > 0 } crew ? crew : [new CrewMember(c.Driver.SteamId.ToString(), c.Driver.Name, c.Driver.Laps)]))
             .ToList();
 
         if (classification.Count == 0)

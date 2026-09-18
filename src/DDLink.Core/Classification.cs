@@ -27,7 +27,9 @@ public sealed record DriverResult(
     uint BestLapMs,
     bool TookChequeredFlag,
     /// <summary>Index of the car in the session's starting grid as built by the server (0 = pole). Counts empty slots.</summary>
-    int GridIndex);
+    int GridIndex,
+    /// <summary>Everyone who drove the car in the session (driver swaps). Null means: only the driver above.</summary>
+    IReadOnlyList<CrewMember>? Crew = null);
 
 public sealed record ClassifiedDriver(int Position, DriverStatus Status, DriverResult Driver);
 

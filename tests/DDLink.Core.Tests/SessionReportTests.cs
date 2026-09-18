@@ -57,6 +57,13 @@ public class SessionReportTests
         Assert.Equal(JsonValueKind.Null, second.GetProperty("bestLapMs").ValueKind);
         Assert.Equal(1, second.GetProperty("gridPosition").GetInt32());
 
+        // Without a swap the crew is the driver alone.
+        var crew = first.GetProperty("crew");
+        Assert.Equal(1, crew.GetArrayLength());
+        Assert.Equal("76561198000000001", crew[0].GetProperty("steamId").GetString());
+        Assert.Equal("Driver 1", crew[0].GetProperty("name").GetString());
+        Assert.Equal(8u, crew[0].GetProperty("laps").GetUInt32());
+
         Assert.Equal(112_300u, root.GetProperty("laps")[0].GetProperty("lapTimeMs").GetUInt32());
         Assert.Equal(JsonValueKind.Null, root.GetProperty("collisions")[0].GetProperty("otherSteamId").ValueKind);
         Assert.False(root.GetProperty("connections")[0].GetProperty("connected").GetBoolean());
@@ -77,5 +84,22 @@ public class SessionReportTests
         var message = SessionReport.Create("evt", "race-1", Race, [Driver(1, 76561198000000001, 8, 900_100, 110_500, true)], [], [], [])!;
         var text = Encoding.UTF8.GetString(MessageJson.Serialize(message));
         Assert.Contains(message.Id.ToString(), text);
+    }
+
+    [Fact]
+    public void A_car_with_a_driver_swap_reports_its_whole_crew()
+    {
+        var swapped = Driver(1, 76561198000000002, 8, 900_100, 110_500, flag: true) with
+        {
+            Crew = [new CrewMember("76561198000000001", "Anna", 5), new CrewMember("76561198000000002", "Ben", 3)],
+        };
+        var message = SessionReport.Create("evt", "race-1", Race, [swapped], [], [], [])!;
+
+        var entry = Assert.Single(message.Classification);
+        // The driver who had the car last stands for it; the crew names everyone.
+        Assert.Equal("76561198000000002", entry.SteamId);
+        Assert.Equal(8u, entry.Laps);
+        Assert.Equal(["Anna", "Ben"], entry.Crew.Select(c => c.Name));
+        Assert.Equal([5u, 3u], entry.Crew.Select(c => c.Laps));
     }
 }

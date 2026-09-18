@@ -53,7 +53,10 @@ Delivery is at-least-once and in order: while one message cannot be delivered, l
       "laps": 8,
       "totalTimeMs": 900100,
       "bestLapMs": 110500,
-      "gridPosition": 2
+      "gridPosition": 2,
+      "crew": [
+        { "steamId": "76561198000000001", "name": "Driver 1", "laps": 8 }
+      ]
     }
   ],
   "laps": [
@@ -74,6 +77,19 @@ Delivery is at-least-once and in order: while one message cannot be delivered, l
   both cars, each from its own point of view.
 - `bestLapMs` is `null` when the driver set no lap time.
 - `gridPosition` is the starting position among the drivers in the message (1 = pole). It is `null` outside races.
+- `crew` lists everyone who drove the car in the session, in the order of their first stint, with the laps
+  each of them completed. Without a driver swap it is the driver alone. `steamId` and `name` of the entry are
+  the driver who had the car last; `laps`, `totalTimeMs` and `bestLapMs` belong to the car.
+
+## Driver swaps
+
+Assetto Corsa has no driver swap. A slot of the entry list can name several SteamIDs (`GUID=a;b;c`); the swap
+is one driver leaving the server and a crew-mate joining the same slot. The server starts the slot's result
+from zero when a different driver joins, so the plugin remembers what the car had achieved (at every
+completed lap and when the driver leaves) and restores it for the crew-mate: laps, total time, best lap and
+last lap. The total time is the race clock at the last completed lap, so the time the car stood still during
+the swap counts by itself. The new driver's game starts with a fresh car (fuel, tyres, no damage); rules such
+as a minimum swap time are for the stewards, who find every connect and disconnect in `connections`.
 
 ## Classification rules
 

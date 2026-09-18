@@ -39,7 +39,9 @@ public sealed record ClassificationEntry(
     uint TotalTimeMs,
     uint? BestLapMs,
     /// <summary>Starting position among the drivers of this message (1 = pole). Null outside races.</summary>
-    int? GridPosition);
+    int? GridPosition,
+    /// <summary>Everyone who drove the car, with their laps. SteamId and Name above are the driver who had the car last.</summary>
+    IReadOnlyList<CrewMember> Crew);
 
 public sealed record LapEntry(string SteamId, uint LapNumber, uint LapTimeMs, int Cuts, long SessionTimeMs);
 
