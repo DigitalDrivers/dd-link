@@ -81,6 +81,38 @@ Delivery is at-least-once and in order: while one message cannot be delivered, l
   each of them completed. Without a driver swap it is the driver alone. `steamId` and `name` of the entry are
   the driver who had the car last; `laps`, `totalTimeMs` and `bestLapMs` belong to the car.
 
+## Live state
+
+With `LiveEndpoint` configured, the plugin posts the state of the running session about once a second
+(`LiveIntervalMilliseconds`, default 1000), signed like every other message. It is meant for live timing and a
+track map. Nothing is stored or retried: a message that cannot be delivered is dropped, the next one carries
+the current state anyway. Only connected cars that have sent a position are listed, in live order.
+
+```json
+{
+  "type": "live.state",
+  "eventId": "evt_123",
+  "serverId": "race-1",
+  "sentAt": "2026-09-18T19:42:10.123+00:00",
+  "session": { "kind": "race", "name": "Race", "track": "ks_nurburgring", "trackLayout": "layout_gp_a",
+               "laps": 8, "timeMinutes": 0, "elapsedMs": 412000, "timeLeftMs": 0 },
+  "cars": [
+    { "carId": 0, "steamId": "76561198000000001", "name": "Driver 1", "carModel": "ks_porsche_911_gt3_r_2016",
+      "position": 1, "laps": 3, "totalTimeMs": 341200, "bestLapMs": 110500, "lastLapMs": 111050, "finished": false,
+      "spline": 0.4312, "x": 12.5, "z": -40.25, "speedKmh": 182, "gear": 4, "rpm": 7200, "gas": 87,
+      "sectors": [35100] }
+  ]
+}
+```
+
+- `position` is the live rank. Race: more laps, then (once finished) the earlier finish, then the progress along
+  the lap (`spline`, 0 to 1). Practice and qualifying: the best lap.
+- `totalTimeMs` is the race clock when the car last crossed the line; gaps between cars on the same lap are the
+  difference of these values.
+- `x` and `z` are the world position on the ground plane in metres, `gear` is -1 for reverse and 0 for neutral,
+  `gas` is the throttle in percent. Brake, fuel and tyre state are not known to the server.
+- `sectors` are the sector times of the lap in progress, as far as they are set.
+
 ## Driver swaps
 
 Assetto Corsa has no driver swap. A slot of the entry list can name several SteamIDs (`GUID=a;b;c`); the swap

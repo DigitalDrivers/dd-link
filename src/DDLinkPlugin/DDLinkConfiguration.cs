@@ -23,6 +23,12 @@ public class DDLinkConfiguration : IValidateConfiguration<DDLinkConfigurationVal
 
     [YamlMember(Description = "Directory for messages that are waiting for delivery")]
     public string SpoolDirectory { get; init; } = "dd-link-spool";
+
+    [YamlMember(Description = "URL that receives the live state of the session (live timing). Empty: no live feed")]
+    public string LiveEndpoint { get; init; } = "";
+
+    [YamlMember(Description = "Milliseconds between two live states")]
+    public int LiveIntervalMilliseconds { get; init; } = 1000;
 }
 
 public class DDLinkConfigurationValidator : AbstractValidator<DDLinkConfiguration>
@@ -36,5 +42,9 @@ public class DDLinkConfigurationValidator : AbstractValidator<DDLinkConfiguratio
         RuleFor(cfg => cfg.EventId).NotEmpty();
         RuleFor(cfg => cfg.ServerId).NotEmpty();
         RuleFor(cfg => cfg.SpoolDirectory).NotEmpty();
+        RuleFor(cfg => cfg.LiveEndpoint)
+            .Must(url => url == "" || (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"))
+            .WithMessage("LiveEndpoint must be empty or an absolute http(s) URL");
+        RuleFor(cfg => cfg.LiveIntervalMilliseconds).InclusiveBetween(200, 10_000);
     }
 }
