@@ -156,7 +156,8 @@ public class DDLinkLiveService : BackgroundService
             s.Sectors)).OrderBy(c => c.Position).ToList();
 
         var server = _serverConfiguration.Server;
-        var session = new LiveSession(kind, current.Configuration.Name ?? "", server.Track, server.TrackConfig,
+        // Not Server.Track: the server rewrites that to "csp/<version>/../<track>".
+        var session = new LiveSession(kind, current.Configuration.Name ?? "", _serverConfiguration.CSPTrackOptions.Track, server.TrackConfig,
             current.Configuration.Laps, current.Configuration.Time, current.SessionTimeMilliseconds, current.TimeLeftMilliseconds);
         return new LiveStateMessage(LiveStateMessage.MessageType, _configuration.EventId, _configuration.ServerId, DateTimeOffset.UtcNow, session, cars);
     }

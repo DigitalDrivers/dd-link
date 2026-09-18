@@ -166,7 +166,8 @@ public class DDLinkService : BackgroundService
         });
 
         var server = _serverConfiguration.Server;
-        var session = new SessionInfo(kind, previous.Configuration.Name ?? "", server.Track, server.TrackConfig,
+        // The server rewrites Server.Track to "csp/<version>/../<track>" to demand a CSP version; report the plain folder name.
+        var session = new SessionInfo(kind, previous.Configuration.Name ?? "", _serverConfiguration.CSPTrackOptions.Track, server.TrackConfig,
             previous.Configuration.Laps, previous.Configuration.Time, previous.SessionTimeMilliseconds);
 
         var message = SessionReport.Create(_configuration.EventId, _configuration.ServerId, session, results, laps, collisions, connections);
