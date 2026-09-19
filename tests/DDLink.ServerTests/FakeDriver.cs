@@ -84,13 +84,24 @@ public sealed class FakeDriver : IAsyncDisposable
         return (driver, Accepted);
     }
 
+    // UDP gives no delivery guarantee, so the car announces itself until the server answers, as the game does.
     private async Task AssociateUdpAsync()
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await _udp.SendAsync(new byte[] { (byte)ACServerProtocol.CarConnect, _sessionId }, timeout.Token);
-        var reply = await _udp.ReceiveAsync(timeout.Token);
-        if (reply.Buffer.Length == 0 || reply.Buffer[0] != (byte)ACServerProtocol.CarConnect)
-            throw new InvalidOperationException("The server did not accept the UDP connection of the car");
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            await _udp.SendAsync(new byte[] { (byte)ACServerProtocol.CarConnect, _sessionId });
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            try
+            {
+                var reply = await _udp.ReceiveAsync(timeout.Token);
+                if (reply.Buffer.Length > 0 && reply.Buffer[0] == (byte)ACServerProtocol.CarConnect)
+                    return;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+        throw new InvalidOperationException("The server did not accept the UDP connection of the car");
     }
 
     // 20 position updates a second: round the lap at 180 km/h, on a circle so the map has something to draw.

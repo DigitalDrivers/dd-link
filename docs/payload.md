@@ -100,7 +100,7 @@ the current state anyway. Only connected cars that have sent a position are list
     { "carId": 0, "steamId": "76561198000000001", "name": "Driver 1", "carModel": "ks_porsche_911_gt3_r_2016",
       "position": 1, "laps": 3, "totalTimeMs": 341200, "bestLapMs": 110500, "lastLapMs": 111050, "finished": false,
       "spline": 0.4312, "x": 12.5, "z": -40.25, "speedKmh": 182, "gear": 4, "rpm": 7200, "gas": 87,
-      "sectors": [35100] }
+      "sectors": [35100], "telemetry": null }
   ]
 }
 ```
@@ -110,8 +110,15 @@ the current state anyway. Only connected cars that have sent a position are list
 - `totalTimeMs` is the race clock when the car last crossed the line; gaps between cars on the same lap are the
   difference of these values.
 - `x` and `z` are the world position on the ground plane in metres, `gear` is -1 for reverse and 0 for neutral,
-  `gas` is the throttle in percent. Brake, fuel and tyre state are not known to the server.
+  `gas` is the throttle in percent. Brake, fuel and tyre state are not known to the server itself; see `telemetry`.
 - `sectors` are the sector times of the lap in progress, as far as they are set.
+- `telemetry` is what only the driver's game knows, or `null` until that game has reported (it needs Custom
+  Shaders Patch): `fuelLitres`, `maxFuelLitres`, `fuelPerLapLitres` (0 until the game has an estimate),
+  `engineLife` (1000 new, 0 broken), `brake` (0 to 1), `tyreWear` (0 to 1), `tyreTemperature` (core, °C),
+  `tyrePressure` (psi), each for front left, front right, rear left, rear right, `damage` for front, rear, left,
+  right (highest collision speed in km/h taken there) and `inPitLane`. The plugin ships `lua/telemetry.lua` to
+  every game on the server; it reports once a second. The server does not pass these messages on to other
+  drivers. The platform must show them to the car's own team only.
 
 ## Driver swaps
 

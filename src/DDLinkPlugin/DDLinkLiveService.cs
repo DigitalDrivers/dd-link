@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Reflection;
 using AssettoServer.Network.Tcp;
 using AssettoServer.Server;
 using AssettoServer.Server.Configuration;
@@ -27,17 +28,44 @@ public class DDLinkLiveService : BackgroundService
     private PositionUpdateIn[] _positions = [];
     private bool[] _hasPosition = [];
     private List<uint>[] _sectors = [];
+    // The latest telemetry per car with the time it arrived; a game that stops reporting is not shown forever.
+    private readonly Dictionary<byte, (LiveTelemetry Telemetry, long ReceivedAt)> _telemetry = new();
+    private const long TelemetryMaxAgeMs = 5000;
 
     public DDLinkLiveService(
         DDLinkConfiguration configuration,
         ACServerConfiguration serverConfiguration,
         SessionManager sessionManager,
-        EntryCarManager entryCarManager)
+        EntryCarManager entryCarManager,
+        CSPServerScriptProvider scriptProvider,
+        CSPClientMessageTypeManager clientMessageTypes)
     {
         _configuration = configuration;
         _serverConfiguration = serverConfiguration;
         _sessionManager = sessionManager;
         _entryCarManager = entryCarManager;
+
+        if (string.IsNullOrEmpty(configuration.LiveEndpoint))
+            return;
+        // The pit wall: every driver's game runs this script and reports fuel, tyres and damage. Scripts and
+        // message types have to be known before the server starts, hence here and not in ExecuteAsync.
+        scriptProvider.AddScript(Assembly.GetExecutingAssembly().GetManifestResourceStream("DDLinkPlugin.lua.telemetry.lua")!, "dd-telemetry.lua");
+        clientMessageTypes.RegisterOnlineEvent<TelemetryPacket>(OnTelemetry);
+    }
+
+    // The server handles a registered message itself and does not pass it on to other drivers.
+    private void OnTelemetry(ACTcpClient sender, TelemetryPacket packet)
+    {
+        var telemetry = LiveTelemetry.Create(packet.Fuel, packet.MaxFuel, packet.FuelPerLap, packet.EngineLife, packet.Brake,
+            packet.TyreWear, packet.TyreTemperature, packet.TyrePressure, packet.Damage, packet.InPitLane);
+        bool first;
+        lock (_lock)
+        {
+            first = !_telemetry.ContainsKey(sender.SessionId);
+            _telemetry[sender.SessionId] = (telemetry, _sessionManager.ServerTimeMilliseconds);
+        }
+        if (first)
+            Log.Information("DD Link: {Name} reports telemetry, {Fuel:F1} of {MaxFuel:F0} litres of fuel", sender.Name, telemetry.FuelLitres, telemetry.MaxFuelLitres);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -58,7 +86,14 @@ public class DDLinkLiveService : BackgroundService
             foreach (var car in _entryCarManager.EntryCars)
                 car.PositionUpdateReceived += OnPositionUpdate;
             _entryCarManager.ClientConnected += OnClientConnected;
-            _entryCarManager.ClientDisconnected += (client, _) => { lock (_lock) _hasPosition[client.SessionId] = false; };
+            _entryCarManager.ClientDisconnected += (client, _) =>
+            {
+                lock (_lock)
+                {
+                    _hasPosition[client.SessionId] = false;
+                    _telemetry.Remove(client.SessionId);
+                }
+            };
             _sessionManager.SessionChanged += (_, _) => { lock (_lock) foreach (var sectors in _sectors) sectors.Clear(); };
             Log.Information("DD Link: live feed to {Endpoint} every {Interval} ms", _configuration.LiveEndpoint, _configuration.LiveIntervalMilliseconds);
 
@@ -119,7 +154,8 @@ public class DDLinkLiveService : BackgroundService
             _ => SessionKind.Practice,
         };
 
-        var states = new List<(EntryCar Car, ACTcpClient Client, EntryCarResult Result, PositionUpdateIn Position, List<uint> Sectors)>();
+        var states = new List<(EntryCar Car, ACTcpClient Client, EntryCarResult Result, PositionUpdateIn Position, List<uint> Sectors, LiveTelemetry? Telemetry)>();
+        var now = _sessionManager.ServerTimeMilliseconds;
         lock (_lock)
         {
             foreach (var car in _entryCarManager.EntryCars)
@@ -128,7 +164,8 @@ public class DDLinkLiveService : BackgroundService
                     continue;
                 if (current.Results == null || !current.Results.TryGetValue(car.SessionId, out var result))
                     continue;
-                states.Add((car, client, result, _positions[car.SessionId], [.. _sectors[car.SessionId]]));
+                var telemetry = _telemetry.TryGetValue(car.SessionId, out var latest) && now - latest.ReceivedAt <= TelemetryMaxAgeMs ? latest.Telemetry : null;
+                states.Add((car, client, result, _positions[car.SessionId], [.. _sectors[car.SessionId]], telemetry));
             }
         }
 
@@ -153,7 +190,8 @@ public class DDLinkLiveService : BackgroundService
             s.Position.Gear - 1,
             s.Position.EngineRpm,
             (int)Math.Round(s.Position.Gas / 255f * 100f),
-            s.Sectors)).OrderBy(c => c.Position).ToList();
+            s.Sectors,
+            s.Telemetry)).OrderBy(c => c.Position).ToList();
 
         var server = _serverConfiguration.Server;
         // Not Server.Track: the server rewrites that to "csp/<version>/../<track>".

@@ -14,6 +14,10 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <EmbeddedResource Include="lua\telemetry.lua" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\DDLink.Core\DDLink.Core.csproj" />
         <ProjectReference Include="$(AssettoServerSrc)/AssettoServer.Shared/AssettoServer.Shared.csproj">
             <Private>false</Private>

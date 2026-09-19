@@ -58,5 +58,26 @@ public class LiveStateTests
         Assert.Equal(87, car.GetProperty("gas").GetInt32());
         Assert.Equal(35_100u, car.GetProperty("sectors")[0].GetUInt32());
         Assert.Equal(0.43f, car.GetProperty("spline").GetSingle(), 3);
+        // Until the driver's game has reported, there is no telemetry.
+        Assert.Equal(JsonValueKind.Null, car.GetProperty("telemetry").ValueKind);
+    }
+
+    [Fact]
+    public void Telemetry_is_part_of_the_car_and_survives_values_a_game_can_send_but_json_cannot_carry()
+    {
+        var telemetry = LiveTelemetry.Create(41.256789f, 100f, float.NaN, 987.5f, 0.25f,
+            [0.98f, 0.97f, 0.99f, 0.985f], [81.5f, 80.25f, 77f, float.PositiveInfinity], [27.1f, 27.2f, 26.4f, 26.5f], [0f, 12.5f, 0f, 0f], true);
+        var message = new LiveStateMessage(LiveStateMessage.MessageType, "evt", "race-1", DateTimeOffset.UnixEpoch,
+            new LiveSession(SessionKind.Race, "Race", "ks_nurburgring", "layout_gp_a", 8, 0, 61_000, 0),
+            [new LiveCar(0, "76561198000000001", "Anna", "ks_porsche_911_gt3_cup_2017", 1, 2, 229_000, 109_000, 111_000, false, 0.43f, 12.5f, -40.25f, 182, 4, 7200, 87, [], telemetry)]);
+
+        using var json = JsonDocument.Parse(LiveStateMessage.Serialize(message));
+        var reported = json.RootElement.GetProperty("cars")[0].GetProperty("telemetry");
+        Assert.Equal(41.257f, reported.GetProperty("fuelLitres").GetSingle(), 3);
+        Assert.Equal(0f, reported.GetProperty("fuelPerLapLitres").GetSingle());
+        Assert.Equal(0f, reported.GetProperty("tyreTemperature")[3].GetSingle());
+        Assert.Equal(12.5f, reported.GetProperty("damage")[1].GetSingle());
+        Assert.True(reported.GetProperty("inPitLane").GetBoolean());
+        Assert.Equal(4, reported.GetProperty("tyreWear").GetArrayLength());
     }
 }

@@ -55,7 +55,37 @@ public sealed record LiveCar(
     /// <summary>Throttle in percent.</summary>
     int Gas,
     /// <summary>Sector times of the lap in progress, as far as they are set.</summary>
-    IReadOnlyList<uint> Sectors);
+    IReadOnlyList<uint> Sectors,
+    /// <summary>What only the driver's game knows; null until the game has reported it (needs Custom Shaders Patch).</summary>
+    LiveTelemetry? Telemetry = null);
+
+/// <summary>
+/// Fuel, tyres and damage of a car, reported by the driver's own game once a second. Meant for the car's
+/// own team only. Wheels are front left, front right, rear left, rear right; damage zones are front, rear,
+/// left, right (highest collision speed in km/h taken there).
+/// </summary>
+public sealed record LiveTelemetry(
+    float FuelLitres,
+    float MaxFuelLitres,
+    float FuelPerLapLitres,
+    /// <summary>1000 for a new engine, 0 when it breaks.</summary>
+    float EngineLife,
+    /// <summary>Brake pedal, 0 to 1.</summary>
+    float Brake,
+    IReadOnlyList<float> TyreWear,
+    IReadOnlyList<float> TyreTemperature,
+    IReadOnlyList<float> TyrePressure,
+    IReadOnlyList<float> Damage,
+    bool InPitLane)
+{
+    /// <summary>Values as they arrive from a game; whatever is not a finite number becomes zero, because JSON has no NaN.</summary>
+    public static LiveTelemetry Create(float fuel, float maxFuel, float fuelPerLap, float engineLife, float brake,
+        float[] tyreWear, float[] tyreTemperature, float[] tyrePressure, float[] damage, bool inPitLane)
+        => new(Finite(fuel), Finite(maxFuel), Finite(fuelPerLap), Finite(engineLife), Finite(brake),
+            [.. tyreWear.Select(Finite)], [.. tyreTemperature.Select(Finite)], [.. tyrePressure.Select(Finite)], [.. damage.Select(Finite)], inPitLane);
+
+    private static float Finite(float value) => float.IsFinite(value) ? MathF.Round(value, 3) : 0f;
+}
 
 /// <summary>What is known about a car before it is ranked.</summary>
 public sealed record LiveCarState(byte CarId, uint Laps, uint TotalTimeMs, uint BestLapMs, bool Finished, float Spline);
