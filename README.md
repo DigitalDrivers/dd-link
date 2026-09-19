@@ -27,8 +27,12 @@ Not yet implemented: saving and uploading the full race replay.
 Requires the .NET 9 SDK and git.
 
 ```bash
-scripts/check.sh    # unit tests, then builds the plugin against the pinned AssettoServer sources
+scripts/check.sh    # unit tests, the plugin build against the pinned AssettoServer sources, races on a real server
 ```
+
+The last step starts the AssettoServer built from those sources with the plugin loaded and lets simulated
+drivers race on it (`tests/DDLink.ServerTests`): they speak the game's network protocol, so slots locked to
+SteamIDs, a driver swap in the middle of a race, the live feed and the final result are checked without a game.
 
 The plugin ends up in `out/DDLinkPlugin/`. Copy that folder to the server's `plugins/` directory, add
 `DDLinkPlugin` to `EnablePlugins` in `extra_cfg.yml` and create `plugin_dd_link_cfg.yml` next to it:

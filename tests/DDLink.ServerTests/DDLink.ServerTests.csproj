@@ -1,0 +1,30 @@
+<!-- Tests against a real AssettoServer process with the plugin loaded. Simulated drivers speak the game's
+     network protocol. Needs the AssettoServer sources and the published plugin; scripts/check.sh provides both
+     (DDLINK_SERVER_DLL, DDLINK_PLUGIN_DIR). Not part of the solution for that reason. -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AssettoServerSrc Condition="'$(AssettoServerSrc)' == ''">/src/AssettoServer</AssettoServerSrc>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Compile Include="..\DDLink.Core.Tests\TestReceiver.cs" Link="TestReceiver.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DDLink.Core\DDLink.Core.csproj" />
+    <ProjectReference Include="$(AssettoServerSrc)/AssettoServer.Shared/AssettoServer.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

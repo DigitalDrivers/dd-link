@@ -123,6 +123,12 @@ last lap. The total time is the race clock at the last completed lap, so the tim
 the swap counts by itself. The new driver's game starts with a fresh car (fuel, tyres, no damage); rules such
 as a minimum swap time are for the stewards, who find every connect and disconnect in `connections`.
 
+Two things about the server matter for swaps, both checked by the tests that run a race on a real server
+(`tests/DDLink.ServerTests`). The race session must allow joining after the start (`IS_OPEN=1`): with
+`IS_OPEN=2` the server refuses the crew-mate and skips the race as soon as fewer than two drivers are
+connected. And even with `IS_OPEN=1` the server ends a race the moment nobody is connected, so a swap needs
+at least one other car on the server at that moment.
+
 ## Classification rules
 
 The server refreshes its own position field only when a lap is completed, so the plugin computes the order.

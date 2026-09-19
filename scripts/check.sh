@@ -24,4 +24,8 @@ dotnet publish src/DDLinkPlugin/DDLinkPlugin.csproj -c Release -r linux-x64 --no
 
 test -f out/DDLinkPlugin/DDLinkPlugin.dll
 test -f out/DDLinkPlugin/DDLink.Core.dll
+
+echo "== race on a real server with simulated drivers"
+DDLINK_SERVER_DLL="$SRC/AssettoServer/bin/Release/net9.0/AssettoServer.dll" DDLINK_PLUGIN_DIR="$PWD/out/DDLinkPlugin" \
+  dotnet test tests/DDLink.ServerTests --nologo -p:AssettoServerSrc="$SRC"
 echo "== all checks passed; plugin is in out/DDLinkPlugin"
