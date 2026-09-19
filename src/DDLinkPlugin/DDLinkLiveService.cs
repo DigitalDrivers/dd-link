@@ -22,6 +22,7 @@ public class DDLinkLiveService : BackgroundService
     private readonly ACServerConfiguration _serverConfiguration;
     private readonly SessionManager _sessionManager;
     private readonly EntryCarManager _entryCarManager;
+    private readonly SpectatorSlots _spectatorSlots;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(3) };
 
     private readonly object _lock = new();
@@ -31,6 +32,12 @@ public class DDLinkLiveService : BackgroundService
     // The latest telemetry per car with the time it arrived; a game that stops reporting is not shown forever.
     private readonly Dictionary<byte, (LiveTelemetry Telemetry, long ReceivedAt)> _telemetry = new();
     private const long TelemetryMaxAgeMs = 5000;
+    // Spectators belong in the pits while cars qualify or race: the game puts every connected car on the
+    // grid when a race starts, and a parked car on the main straight is an obstacle. When a spectator was
+    // last sent back, by car id.
+    private readonly Dictionary<byte, long> _sentToPits = new();
+    private const long SendToPitsEveryMs = 10_000;
+    private long _sessionStartedAt;
 
     public DDLinkLiveService(
         DDLinkConfiguration configuration,
@@ -38,8 +45,10 @@ public class DDLinkLiveService : BackgroundService
         SessionManager sessionManager,
         EntryCarManager entryCarManager,
         CSPServerScriptProvider scriptProvider,
-        CSPClientMessageTypeManager clientMessageTypes)
+        CSPClientMessageTypeManager clientMessageTypes,
+        SpectatorSlots spectatorSlots)
     {
+        _spectatorSlots = spectatorSlots;
         _configuration = configuration;
         _serverConfiguration = serverConfiguration;
         _sessionManager = sessionManager;
@@ -94,7 +103,15 @@ public class DDLinkLiveService : BackgroundService
                     _telemetry.Remove(client.SessionId);
                 }
             };
-            _sessionManager.SessionChanged += (_, _) => { lock (_lock) foreach (var sectors in _sectors) sectors.Clear(); };
+            _sessionManager.SessionChanged += (_, _) =>
+            {
+                lock (_lock)
+                {
+                    foreach (var sectors in _sectors) sectors.Clear();
+                    _sentToPits.Clear();
+                    _sessionStartedAt = _sessionManager.ServerTimeMilliseconds;
+                }
+            };
             Log.Information("DD Link: live feed to {Endpoint} every {Interval} ms", _configuration.LiveEndpoint, _configuration.LiveIntervalMilliseconds);
 
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(_configuration.LiveIntervalMilliseconds));
@@ -103,6 +120,7 @@ public class DDLinkLiveService : BackgroundService
             {
                 try
                 {
+                    KeepSpectatorsInThePits();
                     await SendAsync(BuildMessage(), stoppingToken);
                     failures = 0;
                 }
@@ -144,6 +162,41 @@ public class DDLinkLiveService : BackgroundService
         client.LapCompleted += (sender, _) => { lock (_lock) _sectors[sender.SessionId].Clear(); };
     }
 
+    /// <summary>
+    /// In qualifying and races, a spectator who is not in the pit lane is sent back to the pit box, again
+    /// every ten seconds until the spectator's game reports the pit lane. Without a report from the game
+    /// (it needs a few seconds after joining) the spectator is sent back once per session.
+    /// </summary>
+    private void KeepSpectatorsInThePits()
+    {
+        if (_sessionManager.CurrentSession.Configuration.Type is not (SessionType.Race or SessionType.Qualifying))
+            return;
+        var now = _sessionManager.ServerTimeMilliseconds;
+        // The game needs a moment to put the cars on the grid; a teleport before that would be undone.
+        if (now - _sessionStartedAt < 5000)
+            return;
+
+        foreach (var car in _entryCarManager.EntryCars)
+        {
+            if (!_spectatorSlots.Contains(car.SessionId) || car.Client is not { HasSentFirstUpdate: true } client)
+                continue;
+            bool? inPitLane;
+            bool sentBefore;
+            long lastSent;
+            lock (_lock)
+            {
+                inPitLane = _telemetry.TryGetValue(car.SessionId, out var latest) && now - latest.ReceivedAt <= TelemetryMaxAgeMs ? latest.Telemetry.InPitLane : null;
+                sentBefore = _sentToPits.TryGetValue(car.SessionId, out lastSent);
+            }
+            if (inPitLane == true || (inPitLane == null && sentBefore) || (sentBefore && now - lastSent < SendToPitsEveryMs))
+                continue;
+
+            client.SendPacket(new TeleportToPitsPacket { SessionId = client.SessionId });
+            lock (_lock) _sentToPits[car.SessionId] = now;
+            Log.Information("DD Link: sent spectator {Name} back to the pits", client.Name);
+        }
+    }
+
     private LiveStateMessage BuildMessage()
     {
         var current = _sessionManager.CurrentSession;
@@ -155,6 +208,7 @@ public class DDLinkLiveService : BackgroundService
         };
 
         var states = new List<(EntryCar Car, ACTcpClient Client, EntryCarResult Result, PositionUpdateIn Position, List<uint> Sectors, LiveTelemetry? Telemetry)>();
+        var spectators = new List<LiveSpectator>();
         var now = _sessionManager.ServerTimeMilliseconds;
         lock (_lock)
         {
@@ -162,6 +216,13 @@ public class DDLinkLiveService : BackgroundService
             {
                 if (car.Client is not { } client || !_hasPosition[car.SessionId])
                     continue;
+                // A spectator slot is not a car of the race.
+                if (_spectatorSlots.Contains(car.SessionId))
+                {
+                    bool? inPitLane = _telemetry.TryGetValue(car.SessionId, out var seen) && now - seen.ReceivedAt <= TelemetryMaxAgeMs ? seen.Telemetry.InPitLane : null;
+                    spectators.Add(new LiveSpectator(client.Guid.ToString(), client.Name ?? "", inPitLane));
+                    continue;
+                }
                 if (current.Results == null || !current.Results.TryGetValue(car.SessionId, out var result))
                     continue;
                 var telemetry = _telemetry.TryGetValue(car.SessionId, out var latest) && now - latest.ReceivedAt <= TelemetryMaxAgeMs ? latest.Telemetry : null;
@@ -197,7 +258,7 @@ public class DDLinkLiveService : BackgroundService
         // Not Server.Track: the server rewrites that to "csp/<version>/../<track>".
         var session = new LiveSession(kind, current.Configuration.Name ?? "", _serverConfiguration.CSPTrackOptions.Track, server.TrackConfig,
             current.Configuration.Laps, current.Configuration.Time, current.SessionTimeMilliseconds, current.TimeLeftMilliseconds);
-        return new LiveStateMessage(LiveStateMessage.MessageType, _configuration.EventId, _configuration.ServerId, DateTimeOffset.UtcNow, session, cars);
+        return new LiveStateMessage(LiveStateMessage.MessageType, _configuration.EventId, _configuration.ServerId, DateTimeOffset.UtcNow, session, cars, spectators);
     }
 
     private async Task SendAsync(LiveStateMessage message, CancellationToken ct)

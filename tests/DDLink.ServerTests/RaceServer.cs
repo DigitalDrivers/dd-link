@@ -16,6 +16,8 @@ public sealed class RaceServer : IAsyncDisposable
     public const ulong Ben = 76561198000000002;
     public const ulong Cleo = 76561198000000003;
     public const ulong Stranger = 76561198000000009;
+    public const ulong Steward = 76561198000000007;
+    public const string SpectatorCar = "mercedes_sls";
     public static ulong GridDriver(int slot) => 76561198000001000 + (ulong)slot;
 
     private readonly Process _process;
@@ -36,7 +38,8 @@ public sealed class RaceServer : IAsyncDisposable
     /// <summary>The server process, for measurements.</summary>
     public Process Process => _process;
 
-    public static async Task<RaceServer> StartAsync(int raceLaps, int extraCars = 0)
+    /// <param name="spectatorSlot">Adds a slot for watching from inside the game, open to the crew of the first car and the steward.</param>
+    public static async Task<RaceServer> StartAsync(int raceLaps, int extraCars = 0, bool spectatorSlot = false)
     {
         var serverDll = Environment.GetEnvironmentVariable("DDLINK_SERVER_DLL") ?? throw new InvalidOperationException("DDLINK_SERVER_DLL is not set; run scripts/check.sh");
         var pluginDir = Environment.GetEnvironmentVariable("DDLINK_PLUGIN_DIR") ?? throw new InvalidOperationException("DDLINK_PLUGIN_DIR is not set; run scripts/check.sh");
@@ -60,7 +63,7 @@ public sealed class RaceServer : IAsyncDisposable
             UDP_PORT={gamePort}
             TCP_PORT={gamePort}
             HTTP_PORT={httpPort}
-            MAX_CLIENTS={2 + extraCars}
+            MAX_CLIENTS={2 + extraCars + (spectatorSlot ? 1 : 0)}
             CLIENT_SEND_INTERVAL_HZ=20
             REGISTER_TO_LOBBY=0
             LOOP_MODE=1
@@ -92,7 +95,8 @@ public sealed class RaceServer : IAsyncDisposable
             SKIN=
             GUID={Cleo}
 
-            """ + string.Concat(Enumerable.Range(2, extraCars).Select(i => $"[CAR_{i}]\nMODEL={Car}\nSKIN=\nGUID={GridDriver(i)}\n\n")));
+            """ + string.Concat(Enumerable.Range(2, extraCars).Select(i => $"[CAR_{i}]\nMODEL={Car}\nSKIN=\nGUID={GridDriver(i)}\n\n"))
+            + (spectatorSlot ? $"[CAR_{2 + extraCars}]\nMODEL={SpectatorCar}\nSKIN=\nGUID={Anna};{Ben};{Steward}\nSPECTATOR_MODE=1\n" : ""));
         File.WriteAllText(Path.Combine(preset, "extra_cfg.yml"), """
             UseSteamAuth: false
             EnablePlugins:

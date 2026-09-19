@@ -101,6 +101,9 @@ the current state anyway. Only connected cars that have sent a position are list
       "position": 1, "laps": 3, "totalTimeMs": 341200, "bestLapMs": 110500, "lastLapMs": 111050, "finished": false,
       "spline": 0.4312, "x": 12.5, "z": -40.25, "speedKmh": 182, "gear": 4, "rpm": 7200, "gas": 87,
       "sectors": [35100], "telemetry": null }
+  ],
+  "spectators": [
+    { "steamId": "76561198000000005", "name": "Steward", "inPitLane": true }
   ]
 }
 ```
@@ -119,6 +122,25 @@ the current state anyway. Only connected cars that have sent a position are list
   right (highest collision speed in km/h taken there) and `inPitLane`. The plugin ships `lua/telemetry.lua` to
   every game on the server; it reports once a second. The server does not pass these messages on to other
   drivers. The platform must show them to the car's own team only.
+
+## Spectator slots
+
+A slot of the entry list with `SPECTATOR_MODE=1` is for watching from inside the game: a driver parks there and
+follows the race with the game's cameras (Custom Shaders Patch tells the server whose surroundings to send).
+To Assetto Corsa it is an ordinary car, so give these slots a car model of their own: the server hands a
+driver the matching slot with the most allowed SteamIDs, which would be the spectator slot if it shared the
+model of the race cars. The plugin treats such a slot as no part of the race:
+
+- it appears in no classification and reports no laps, contacts or connections;
+- the live state lists its driver under `spectators` (`steamId`, `name`, `inPitLane` from the driver's game,
+  `null` until that has reported) instead of `cars`;
+- in qualifying and races the driver is sent back to the pit box, five seconds into the session and again
+  every ten seconds while the game reports the car outside the pit lane. The game puts every connected car
+  on the grid when a race starts, and a parked car there is an obstacle.
+
+A connected spectator counts for the server: a race with a single car survives a driver swap while somebody
+watches. (The plugin reads the slots from the entry list, because the server clears its own copy of the flag
+whenever a driver takes the slot.)
 
 ## Driver swaps
 

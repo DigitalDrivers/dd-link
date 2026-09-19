@@ -19,7 +19,8 @@ public class DriverSwapTests
                 return found;
             await Task.Delay(100);
         }
-        throw new TimeoutException($"Timed out waiting for {what}. Server log:\n{server.Log}");
+        var lastLive = Messages(server, "live.state").LastOrDefault();
+        throw new TimeoutException($"Timed out waiting for {what}.\nLast live state: {(lastLive.ValueKind == JsonValueKind.Object ? lastLive.GetRawText() : "none")}\nServer log:\n{server.Log}");
     }
 
     private static IEnumerable<JsonElement> Messages(RaceServer server, string type) => server.Receiver.Requests
@@ -167,6 +168,61 @@ public class DriverSwapTests
         // One driver, one crew member, all three laps hers.
         var crew = Assert.Single(winner.GetProperty("crew").EnumerateArray());
         Assert.Equal(3, crew.GetProperty("laps").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_spectator_keeps_a_one_car_race_alive_through_a_swap_and_is_no_part_of_the_race()
+    {
+        await using var server = await RaceServer.StartAsync(raceLaps: 3, spectatorSlot: true);
+
+        // A stranger gets no spectator slot either; the steward does, by asking for the spectator car.
+        var (stranger, refused) = await FakeDriver.JoinAsync(server.GamePort, RaceServer.Stranger, "Stranger", RaceServer.SpectatorCar, 2);
+        Assert.Null(stranger);
+        Assert.Equal(FakeDriver.NoSlot, refused);
+        var (steward, _) = await FakeDriver.JoinAsync(server.GamePort, RaceServer.Steward, "Steward", RaceServer.SpectatorCar, 2);
+        Assert.NotNull(steward);
+
+        // Anna is on the crew of car 0 and on the list of the spectator slot: asking for the race car gives her the race car.
+        var (anna, _) = await FakeDriver.JoinAsync(server.GamePort, RaceServer.Anna, "Anna", RaceServer.Car, 0);
+        Assert.NotNull(anna);
+        await Task.Delay(3500); // the grid wait
+        await anna.CompleteLapAsync(61_000);
+
+        // The swap with a single car on the server: the steward's connection keeps the race running.
+        await anna.DisposeAsync();
+        FakeDriver? ben = null;
+        for (var attempt = 0; attempt < 20 && ben == null; attempt++)
+        {
+            (ben, _) = await FakeDriver.JoinAsync(server.GamePort, RaceServer.Ben, "Ben", RaceServer.Car, 0);
+            if (ben == null)
+                await Task.Delay(250);
+        }
+        Assert.True(ben != null, $"Ben could not take over. Server log:\n{server.Log}");
+        Assert.DoesNotContain("Skipping race session", server.Log);
+
+        // The live feed lists the steward as a spectator, not as a car.
+        var live = (JsonElement)await EventuallyAsync(() =>
+        {
+            var latest = Messages(server, "live.state").LastOrDefault();
+            return latest.ValueKind == JsonValueKind.Object && latest.GetProperty("cars").GetArrayLength() == 1 && latest.GetProperty("spectators").GetArrayLength() == 1 ? (object)latest : null;
+        }, "one car and one spectator in the live feed", server);
+        Assert.Equal("Ben", live.GetProperty("cars")[0].GetProperty("name").GetString());
+        Assert.Equal("Steward", live.GetProperty("spectators")[0].GetProperty("name").GetString());
+
+        // In a race, a spectator is sent back to the pits: the game would have put the car on the grid.
+        await EventuallyAsync(() => server.Log.Contains("DD Link: sent spectator Steward back to the pits") ? "sent" : null, "the spectator being sent to the pits", server);
+
+        await ben.CompleteLapAsync(62_000);
+        await ben.CompleteLapAsync(60_100);
+        var result = (JsonElement)await EventuallyAsync(() => Messages(server, "session.completed").Select(m => (object)m).FirstOrDefault(), "the race result", server, seconds: 45);
+        await ben.DisposeAsync();
+        await steward.DisposeAsync();
+
+        // The result knows one car with its crew; the spectator appears nowhere.
+        var only = Assert.Single(result.GetProperty("classification").EnumerateArray());
+        Assert.Equal(3, only.GetProperty("laps").GetInt32());
+        Assert.Equal(["Anna", "Ben"], only.GetProperty("crew").EnumerateArray().Select(c => c.GetProperty("name").GetString()));
+        Assert.DoesNotContain("Steward", result.GetRawText());
     }
 
     [Fact]

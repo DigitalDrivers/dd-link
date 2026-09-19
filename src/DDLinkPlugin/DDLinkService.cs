@@ -18,6 +18,7 @@ public class DDLinkService : BackgroundService
     private readonly ACServerConfiguration _serverConfiguration;
     private readonly SessionManager _sessionManager;
     private readonly EntryCarManager _entryCarManager;
+    private readonly SpectatorSlots _spectators;
     private readonly Outbox _outbox;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(30) };
 
@@ -32,8 +33,10 @@ public class DDLinkService : BackgroundService
         DDLinkConfiguration configuration,
         ACServerConfiguration serverConfiguration,
         SessionManager sessionManager,
-        EntryCarManager entryCarManager)
+        EntryCarManager entryCarManager,
+        SpectatorSlots spectators)
     {
+        _spectators = spectators;
         _configuration = configuration;
         _serverConfiguration = serverConfiguration;
         _sessionManager = sessionManager;
@@ -52,8 +55,13 @@ public class DDLinkService : BackgroundService
 
     private long SessionTime => _sessionManager.CurrentSession.SessionTimeMilliseconds;
 
+    // Spectator slots (SPECTATOR_MODE in the entry list) are not cars of the race: nothing they do is reported.
+    private bool IsSpectator(ACTcpClient client) => _spectators.Contains(client.SessionId);
+
     private void OnClientConnected(ACTcpClient client, EventArgs args)
     {
+        if (IsSpectator(client))
+            return;
         client.LapCompleted += OnLapCompleted;
         client.Collision += OnCollision;
         StintLedger ledger;
@@ -84,6 +92,8 @@ public class DDLinkService : BackgroundService
 
     private void OnClientDisconnected(ACTcpClient client, EventArgs args)
     {
+        if (IsSpectator(client))
+            return;
         StintLedger ledger;
         lock (_lock)
         {
@@ -130,7 +140,7 @@ public class DDLinkService : BackgroundService
         // Drivers who stay connected start the new session in their cars.
         foreach (var car in _entryCarManager.EntryCars)
         {
-            if (car.Client is { } connected)
+            if (!_spectators.Contains(car.SessionId) && car.Client is { } connected)
                 nextLedger.DriverJoined(car.SessionId, connected.Guid, connected.Name ?? "");
         }
         lock (_lock)
@@ -157,7 +167,7 @@ public class DDLinkService : BackgroundService
             .Select((car, index) => (car.SessionId, index))
             .ToDictionary(x => x.SessionId, x => x.index);
 
-        var results = previous.Results.Select(pair =>
+        var results = previous.Results.Where(pair => !_spectators.Contains(pair.Key)).Select(pair =>
         {
             var car = _entryCarManager.EntryCars[pair.Key];
             var r = pair.Value;

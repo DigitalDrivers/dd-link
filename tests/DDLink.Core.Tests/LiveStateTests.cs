@@ -41,7 +41,8 @@ public class LiveStateTests
     {
         var message = new LiveStateMessage(LiveStateMessage.MessageType, "evt", "race-1", DateTimeOffset.UnixEpoch,
             new LiveSession(SessionKind.Race, "Race", "ks_nurburgring", "layout_gp_a", 8, 0, 61_000, 0),
-            [new LiveCar(0, "76561198000000001", "Anna", "ks_porsche_911_gt3_cup_2017", 1, 2, 229_000, 109_000, 111_000, false, 0.43f, 12.5f, -40.25f, 182, 4, 7200, 87, [35_100])]);
+            [new LiveCar(0, "76561198000000001", "Anna", "ks_porsche_911_gt3_cup_2017", 1, 2, 229_000, 109_000, 111_000, false, 0.43f, 12.5f, -40.25f, 182, 4, 7200, 87, [35_100])],
+            [new LiveSpectator("76561198000000005", "Sam", true), new LiveSpectator("76561198000000006", "Tom", null)]);
 
         using var json = JsonDocument.Parse(LiveStateMessage.Serialize(message));
         var root = json.RootElement;
@@ -60,6 +61,12 @@ public class LiveStateTests
         Assert.Equal(0.43f, car.GetProperty("spline").GetSingle(), 3);
         // Until the driver's game has reported, there is no telemetry.
         Assert.Equal(JsonValueKind.Null, car.GetProperty("telemetry").ValueKind);
+
+        // Spectators are listed apart from the cars.
+        var spectators = root.GetProperty("spectators");
+        Assert.Equal("Sam", spectators[0].GetProperty("name").GetString());
+        Assert.True(spectators[0].GetProperty("inPitLane").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, spectators[1].GetProperty("inPitLane").ValueKind);
     }
 
     [Fact]
@@ -69,7 +76,7 @@ public class LiveStateTests
             [0.98f, 0.97f, 0.99f, 0.985f], [81.5f, 80.25f, 77f, float.PositiveInfinity], [27.1f, 27.2f, 26.4f, 26.5f], [0f, 12.5f, 0f, 0f], true);
         var message = new LiveStateMessage(LiveStateMessage.MessageType, "evt", "race-1", DateTimeOffset.UnixEpoch,
             new LiveSession(SessionKind.Race, "Race", "ks_nurburgring", "layout_gp_a", 8, 0, 61_000, 0),
-            [new LiveCar(0, "76561198000000001", "Anna", "ks_porsche_911_gt3_cup_2017", 1, 2, 229_000, 109_000, 111_000, false, 0.43f, 12.5f, -40.25f, 182, 4, 7200, 87, [], telemetry)]);
+            [new LiveCar(0, "76561198000000001", "Anna", "ks_porsche_911_gt3_cup_2017", 1, 2, 229_000, 109_000, 111_000, false, 0.43f, 12.5f, -40.25f, 182, 4, 7200, 87, [], telemetry)], []);
 
         using var json = JsonDocument.Parse(LiveStateMessage.Serialize(message));
         var reported = json.RootElement.GetProperty("cars")[0].GetProperty("telemetry");

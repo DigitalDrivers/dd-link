@@ -13,7 +13,9 @@ public sealed record LiveStateMessage(
     string ServerId,
     DateTimeOffset SentAt,
     LiveSession Session,
-    IReadOnlyList<LiveCar> Cars)
+    IReadOnlyList<LiveCar> Cars,
+    /// <summary>Who watches from inside the game, in a spectator slot. Not part of the race.</summary>
+    IReadOnlyList<LiveSpectator> Spectators)
 {
     public const string MessageType = "live.state";
 
@@ -86,6 +88,12 @@ public sealed record LiveTelemetry(
 
     private static float Finite(float value) => float.IsFinite(value) ? MathF.Round(value, 3) : 0f;
 }
+
+/// <summary>
+/// A driver in a spectator slot: parked in the pits, following the race with the game's cameras.
+/// InPitLane comes from that driver's game and is null until it has reported.
+/// </summary>
+public sealed record LiveSpectator(string SteamId, string Name, bool? InPitLane);
 
 /// <summary>What is known about a car before it is ranked.</summary>
 public sealed record LiveCarState(byte CarId, uint Laps, uint TotalTimeMs, uint BestLapMs, bool Finished, float Spline);
