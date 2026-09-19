@@ -149,7 +149,21 @@ public sealed class RaceServer : IAsyncDisposable
             await server.DisposeAsync();
             throw new InvalidOperationException($"The server did not start:\n{log}");
         }
-        return server;
+        // The log line comes a moment before the port accepts connections; a driver who is quicker than
+        // that is refused. Ready means: the game port answers.
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                using var probe = new System.Net.Sockets.TcpClient();
+                await probe.ConnectAsync(System.Net.IPAddress.Loopback, gamePort);
+                return server;
+            }
+            catch (System.Net.Sockets.SocketException) when (attempt < 100)
+            {
+                await Task.Delay(100);
+            }
+        }
     }
 
     public async ValueTask DisposeAsync()
