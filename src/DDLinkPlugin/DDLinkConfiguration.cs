@@ -29,6 +29,12 @@ public class DDLinkConfiguration : IValidateConfiguration<DDLinkConfigurationVal
 
     [YamlMember(Description = "Milliseconds between two live states")]
     public int LiveIntervalMilliseconds { get; init; } = 1000;
+
+    [YamlMember(Description = "URL of the platform's ban list. The plugin keeps the server's blacklist in step with it. Empty: bans are not synchronised")]
+    public string BansEndpoint { get; init; } = "";
+
+    [YamlMember(Description = "Seconds between two looks at the ban list")]
+    public int BansIntervalSeconds { get; init; } = 5;
 }
 
 public class DDLinkConfigurationValidator : AbstractValidator<DDLinkConfiguration>
@@ -46,5 +52,9 @@ public class DDLinkConfigurationValidator : AbstractValidator<DDLinkConfiguratio
             .Must(url => url == "" || (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"))
             .WithMessage("LiveEndpoint must be empty or an absolute http(s) URL");
         RuleFor(cfg => cfg.LiveIntervalMilliseconds).InclusiveBetween(200, 10_000);
+        RuleFor(cfg => cfg.BansEndpoint)
+            .Must(url => url == "" || (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"))
+            .WithMessage("BansEndpoint must be empty or an absolute http(s) URL");
+        RuleFor(cfg => cfg.BansIntervalSeconds).InclusiveBetween(1, 300);
     }
 }

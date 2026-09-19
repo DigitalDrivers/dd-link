@@ -35,6 +35,9 @@ public sealed class RaceServer : IAsyncDisposable
         Receiver = receiver;
     }
 
+    /// <summary>The server's blacklist file, as it is on disk right now.</summary>
+    public string Blacklist => File.Exists(Path.Combine(_directory, "blacklist.txt")) ? File.ReadAllText(Path.Combine(_directory, "blacklist.txt")) : "";
+
     /// <summary>The server process, for measurements.</summary>
     public Process Process => _process;
 
@@ -110,6 +113,8 @@ public sealed class RaceServer : IAsyncDisposable
             Endpoint: http://127.0.0.1:{receiverPort}/api/link/messages
             LiveEndpoint: http://127.0.0.1:{receiverPort}/api/link/live
             LiveIntervalMilliseconds: 250
+            BansEndpoint: http://127.0.0.1:{receiverPort}/api/link/bans
+            BansIntervalSeconds: 2
             Secret: {Secret}
             EventId: server-test-event
             ServerId: server-test

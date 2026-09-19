@@ -12,6 +12,9 @@ public sealed class TestReceiver : IDisposable
     private readonly HttpListener _listener = new();
     public ConcurrentQueue<Received> Requests { get; } = new();
     public int StatusCode { get; set; } = 200;
+    /// <summary>What the platform's ban list says (GET .../bans); requests for it are kept apart from the messages.</summary>
+    public IReadOnlyList<ulong> Bans { get; set; } = [];
+    public ConcurrentQueue<Received> BanRequests { get; } = new();
 
     public static int FreePort()
     {
@@ -41,6 +44,15 @@ public sealed class TestReceiver : IDisposable
 
             using var buffer = new MemoryStream();
             await context.Request.InputStream.CopyToAsync(buffer);
+            if (context.Request.HttpMethod == "GET" && context.Request.Url!.AbsolutePath.EndsWith("/bans"))
+            {
+                BanRequests.Enqueue(new Received(buffer.ToArray(), context.Request.Headers["X-DD-Timestamp"], context.Request.Headers["X-DD-Signature"]));
+                var answer = System.Text.Encoding.UTF8.GetBytes($"{{\"steamIds\":[{string.Join(",", Bans.Select(id => $"\"{id}\""))}]}}");
+                context.Response.ContentType = "application/json";
+                await context.Response.OutputStream.WriteAsync(answer);
+                context.Response.Close();
+                continue;
+            }
             Requests.Enqueue(new Received(
                 buffer.ToArray(),
                 context.Request.Headers["X-DD-Timestamp"],

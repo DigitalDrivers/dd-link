@@ -158,6 +158,25 @@ Two things about the server matter for swaps, both checked by the tests that run
 connected. And even with `IS_OPEN=1` the server ends a race the moment nobody is connected, so a swap needs
 at least one other car on the server at that moment.
 
+## Bans
+
+With `BansEndpoint` configured, the plugin asks the platform for its ban list every `BansIntervalSeconds`
+(default 5): `GET <BansEndpoint>?eventId=<EventId>`, signed like a message over an empty body. The answer is
+
+```json
+{ "steamIds": ["76561198000000009"] }
+```
+
+The plugin writes these SteamIDs into the server's blacklist file (`blacklist.txt`, or whatever
+`UserGroups[BlacklistUserGroup]` of `extra_cfg.yml` names), between two marker lines of its own. AssettoServer
+watches that file: it reloads it, refuses banned drivers at the handshake and kicks those who are connected.
+Lines outside the markers, for example what an admin banned on the server itself, stay as they are; the
+server skips the marker lines because they are no numbers. The file is only written when its content changes.
+A platform that does not answer, or answers with anything but such a list, changes nothing: the bans the
+server knows stay. `tests/DDLink.ServerTests/BanTests.cs` checks all of it on a real server: within ten
+seconds of a ban the SteamID is in the file, the connected driver is kicked and cannot join again, and a
+lifted ban lets the driver back in.
+
 ## Classification rules
 
 The server refreshes its own position field only when a lap is completed, so the plugin computes the order.
