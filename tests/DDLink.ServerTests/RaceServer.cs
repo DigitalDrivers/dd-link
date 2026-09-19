@@ -16,6 +16,7 @@ public sealed class RaceServer : IAsyncDisposable
     public const ulong Ben = 76561198000000002;
     public const ulong Cleo = 76561198000000003;
     public const ulong Stranger = 76561198000000009;
+    public static ulong GridDriver(int slot) => 76561198000001000 + (ulong)slot;
 
     private readonly Process _process;
     private readonly string _directory;
@@ -32,7 +33,10 @@ public sealed class RaceServer : IAsyncDisposable
         Receiver = receiver;
     }
 
-    public static async Task<RaceServer> StartAsync(int raceLaps)
+    /// <summary>The server process, for measurements.</summary>
+    public Process Process => _process;
+
+    public static async Task<RaceServer> StartAsync(int raceLaps, int extraCars = 0)
     {
         var serverDll = Environment.GetEnvironmentVariable("DDLINK_SERVER_DLL") ?? throw new InvalidOperationException("DDLINK_SERVER_DLL is not set; run scripts/check.sh");
         var pluginDir = Environment.GetEnvironmentVariable("DDLINK_PLUGIN_DIR") ?? throw new InvalidOperationException("DDLINK_PLUGIN_DIR is not set; run scripts/check.sh");
@@ -56,7 +60,7 @@ public sealed class RaceServer : IAsyncDisposable
             UDP_PORT={gamePort}
             TCP_PORT={gamePort}
             HTTP_PORT={httpPort}
-            MAX_CLIENTS=2
+            MAX_CLIENTS={2 + extraCars}
             CLIENT_SEND_INTERVAL_HZ=20
             REGISTER_TO_LOBBY=0
             LOOP_MODE=1
@@ -76,7 +80,7 @@ public sealed class RaceServer : IAsyncDisposable
             VARIATION_AMBIENT=2
             VARIATION_ROAD=2
             """);
-        // Anna and Ben are one crew in the first car, Cleo drives the second.
+        // Anna and Ben are one crew in the first car, Cleo drives the second; further cars are open to anyone.
         File.WriteAllText(Path.Combine(preset, "entry_list.ini"), $"""
             [CAR_0]
             MODEL={Car}
@@ -87,7 +91,8 @@ public sealed class RaceServer : IAsyncDisposable
             MODEL={Car}
             SKIN=
             GUID={Cleo}
-            """);
+
+            """ + string.Concat(Enumerable.Range(2, extraCars).Select(i => $"[CAR_{i}]\nMODEL={Car}\nSKIN=\nGUID={GridDriver(i)}\n\n")));
         File.WriteAllText(Path.Combine(preset, "extra_cfg.yml"), """
             UseSteamAuth: false
             EnablePlugins:
