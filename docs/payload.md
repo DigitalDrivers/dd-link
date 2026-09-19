@@ -114,7 +114,7 @@ the current state anyway. Only connected cars that have sent a position are list
 - `sectors` are the sector times of the lap in progress, as far as they are set.
 - `telemetry` is what only the driver's game knows, or `null` until that game has reported (it needs Custom
   Shaders Patch): `fuelLitres`, `maxFuelLitres`, `fuelPerLapLitres` (0 until the game has an estimate),
-  `engineLife` (1000 new, 0 broken), `brake` (0 to 1), `tyreWear` (0 to 1), `tyreTemperature` (core, °C),
+  `engineLife` (1000 new, 0 broken), `brake` (0 to 1), `tyreWear` (0 new, 1 worn out), `tyreTemperature` (core, °C),
   `tyrePressure` (psi), each for front left, front right, rear left, rear right, `damage` for front, rear, left,
   right (highest collision speed in km/h taken there) and `inPitLane`. The plugin ships `lua/telemetry.lua` to
   every game on the server; it reports once a second. The server does not pass these messages on to other
