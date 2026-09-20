@@ -46,7 +46,12 @@ public sealed record ClassificationEntry(
 public sealed record LapEntry(string SteamId, uint LapNumber, uint LapTimeMs, int Cuts, long SessionTimeMs);
 
 /// <summary>OtherSteamId is null for contact with the environment.</summary>
-public sealed record CollisionEntry(string SteamId, string? OtherSteamId, float SpeedKmh, float X, float Y, float Z, long SessionTimeMs);
+/// <param name="SpeedKmh">Speed of the impact itself: the game reports it, and both cars report the same one.</param>
+/// <param name="RelX">Where the impact hit this car, in the car's own coordinates: sideways,</param>
+/// <param name="RelY">upwards,</param>
+/// <param name="RelZ">and along the car. Which end of the car is which sign is the game's business; the
+/// platform only compares the two reports of one contact with each other.</param>
+public sealed record CollisionEntry(string SteamId, string? OtherSteamId, float SpeedKmh, float X, float Y, float Z, float RelX, float RelY, float RelZ, long SessionTimeMs);
 
 public sealed record ConnectionEntry(string SteamId, string Name, bool Connected, long SessionTimeMs);
 

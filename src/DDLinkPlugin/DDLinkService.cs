@@ -126,7 +126,8 @@ public class DDLinkService : BackgroundService
         lock (_lock)
         {
             _collisions.Add(new CollisionEntry(client.Guid.ToString(), other, args.Speed,
-                args.Position.X, args.Position.Y, args.Position.Z, SessionTime));
+                args.Position.X, args.Position.Y, args.Position.Z,
+                args.RelPosition.X, args.RelPosition.Y, args.RelPosition.Z, SessionTime));
         }
     }
 

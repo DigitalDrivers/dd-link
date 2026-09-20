@@ -28,11 +28,18 @@ public class SessionReportTests
                 Driver(2, 76561198000000002, 3, 340_000, Classification.NoLapTime, flag: false, grid: 5),
             ],
             [new LapEntry("76561198000000001", 1, 112_300, 0, 118_000)],
-            [new CollisionEntry("76561198000000001", null, 42.5f, 1f, 2f, 3f, 60_000)],
+            [new CollisionEntry("76561198000000001", null, 42.5f, 1f, 2f, 3f, 0.1f, 0.4f, 1.9f, 60_000)],
             [new ConnectionEntry("76561198000000002", "Driver 2", false, 400_000)])!;
 
         using var json = JsonDocument.Parse(MessageJson.Serialize(message));
         var root = json.RootElement;
+
+        var collision = root.GetProperty("collisions")[0];
+        // Where the impact hit the car travels with the contact: the platform tells the two reports apart by it.
+        Assert.Equal(42.5f, collision.GetProperty("speedKmh").GetSingle());
+        Assert.Equal(0.1f, collision.GetProperty("relX").GetSingle());
+        Assert.Equal(0.4f, collision.GetProperty("relY").GetSingle());
+        Assert.Equal(1.9f, collision.GetProperty("relZ").GetSingle());
 
         Assert.Equal("session.completed", root.GetProperty("type").GetString());
         Assert.Equal("evt_123", root.GetProperty("eventId").GetString());

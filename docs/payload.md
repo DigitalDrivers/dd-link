@@ -63,7 +63,7 @@ Delivery is at-least-once and in order: while one message cannot be delivered, l
     { "steamId": "76561198000000001", "lapNumber": 1, "lapTimeMs": 112300, "cuts": 0, "sessionTimeMs": 118000 }
   ],
   "collisions": [
-    { "steamId": "76561198000000001", "otherSteamId": null, "speedKmh": 42.5, "x": 1.0, "y": 2.0, "z": 3.0, "sessionTimeMs": 60000 }
+    { "steamId": "76561198000000001", "otherSteamId": null, "speedKmh": 42.5, "x": 1.0, "y": 2.0, "z": 3.0, "relX": 0.1, "relY": 0.4, "relZ": 1.9, "sessionTimeMs": 60000 }
   ],
   "connections": [
     { "steamId": "76561198000000002", "name": "Driver 2", "connected": false, "sessionTimeMs": 400000 }
@@ -75,6 +75,11 @@ Delivery is at-least-once and in order: while one message cannot be delivered, l
 - SteamIDs are strings because they exceed JavaScript's safe integer range.
 - `otherSteamId` is `null` for contact with the environment. A car-to-car contact is usually reported by
   both cars, each from its own point of view.
+- `speedKmh` is the speed of the impact itself, which is why both reports of one contact carry the same one.
+- `relX`, `relY`, `relZ` say where the impact hit **this** car, in the car's own coordinates: the two reports
+  of one contact therefore tell which part of each car was involved (a nose against a rear, two sides, ...).
+  Which sign is the front of the car is the game's business and not documented; whoever reads this compares
+  the two reports with each other rather than trusting an absolute meaning.
 - `bestLapMs` is `null` when the driver set no lap time.
 - `gridPosition` is the starting position among the drivers in the message (1 = pole). It is `null` outside races.
 - `crew` lists everyone who drove the car in the session, in the order of their first stint, with the laps
