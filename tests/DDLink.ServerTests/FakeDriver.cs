@@ -136,13 +136,20 @@ public sealed class FakeDriver : IAsyncDisposable
         }
     }
 
-    // Car lists, session updates, chat: read and ignored, so the server's send buffer never fills up.
+    /// <summary>The chat lines the server sent to this driver, the way the game would show them.</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<string> Chat { get; } = new();
+
+    // Car lists and session updates are read and ignored, so the server's send buffer never fills up; chat
+    // lines are kept.
     private async Task DrainTcpAsync()
     {
         while (!_stop.IsCancellationRequested)
         {
-            if ((await ReadPacketAsync(_tcp.GetStream(), _stop.Token)).Length == 0)
+            var packet = await ReadPacketAsync(_tcp.GetStream(), _stop.Token);
+            if (packet.Length == 0)
                 return;
+            if (packet[0] == (byte)ACServerProtocol.Chat && packet.Length > 2)
+                Chat.Enqueue(System.Text.Encoding.UTF32.GetString(packet, 3, packet[2] * 4));
         }
     }
 

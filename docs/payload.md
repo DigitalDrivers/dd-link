@@ -182,6 +182,31 @@ server knows stay. `tests/DDLink.ServerTests/BanTests.cs` checks all of it on a 
 seconds of a ban the SteamID is in the file, the connected driver is kicked and cannot join again, and a
 lifted ban lets the driver back in.
 
+## Notices for the drivers in the game
+
+With `NoticesEndpoint` configured, the plugin asks the platform for notices every `NoticesIntervalSeconds`
+(default 3): `GET <NoticesEndpoint>?eventId=<EventId>&after=<last id seen>`, signed like a message over an
+empty body. The answer is
+
+```json
+{ "notices": [
+  { "id": 7, "kind": "race-control", "title": "RACE CONTROL", "text": "Track limits at turn 1 are enforced.", "steamId": null, "createdAt": "2026-09-22T19:05:00.000Z" },
+  { "id": 8, "kind": "result", "title": "P3 OF 12", "text": "Provisional until Thu 21:35 ...", "steamId": "76561198000000001", "createdAt": "2026-09-22T19:40:00.000Z" }
+] }
+```
+
+`kind` is one of `race-control`, `info`, `result`, `warning`; `steamId` null means every driver on the server.
+A notice goes to the chat of each driver it is for and, once the driver's game runs the plugin's
+`lua/notices.lua`, also to the top of the screen as a banner in the colour of its kind. Title and text are cut
+to the 31 and 159 bytes of UTF-8 the game's fields hold. The plugin remembers the last id it has seen and
+leaves out notices from before it started, so a server started again for the same event repeats nothing.
+
+Three notices the plugin writes itself, when a driver's game reports that the script runs: the briefing
+(`BriefingTitle` and `BriefingText` of the configuration), the note for a driver in a spectator slot, and
+for a car with a crew the driver swap ("You take over the car from ..."). `tests/DDLink.ServerTests/NoticeTests.cs`
+checks on a real server that race control reaches every driver, a driver's notice only that driver, and none
+twice.
+
 ## Classification rules
 
 The server refreshes its own position field only when a lap is completed, so the plugin computes the order.

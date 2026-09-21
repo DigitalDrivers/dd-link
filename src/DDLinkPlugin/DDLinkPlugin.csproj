@@ -15,6 +15,7 @@
 
     <ItemGroup>
         <EmbeddedResource Include="lua\telemetry.lua" />
+        <EmbeddedResource Include="lua\notices.lua" />
     </ItemGroup>
 
     <ItemGroup>

@@ -35,6 +35,18 @@ public class DDLinkConfiguration : IValidateConfiguration<DDLinkConfigurationVal
 
     [YamlMember(Description = "Seconds between two looks at the ban list")]
     public int BansIntervalSeconds { get; init; } = 5;
+
+    [YamlMember(Description = "URL of the platform's notices for the drivers in the game (race control, results). Empty: no notices")]
+    public string NoticesEndpoint { get; init; } = "";
+
+    [YamlMember(Description = "Seconds between two looks at the notices")]
+    public int NoticesIntervalSeconds { get; init; } = 3;
+
+    [YamlMember(Description = "Title of the briefing a driver's game shows when it has joined. Empty: no briefing")]
+    public string BriefingTitle { get; init; } = "";
+
+    [YamlMember(Description = "Text of that briefing")]
+    public string BriefingText { get; init; } = "";
 }
 
 public class DDLinkConfigurationValidator : AbstractValidator<DDLinkConfiguration>
@@ -56,5 +68,9 @@ public class DDLinkConfigurationValidator : AbstractValidator<DDLinkConfiguratio
             .Must(url => url == "" || (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"))
             .WithMessage("BansEndpoint must be empty or an absolute http(s) URL");
         RuleFor(cfg => cfg.BansIntervalSeconds).InclusiveBetween(1, 300);
+        RuleFor(cfg => cfg.NoticesEndpoint)
+            .Must(url => url == "" || (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"))
+            .WithMessage("NoticesEndpoint must be empty or an absolute http(s) URL");
+        RuleFor(cfg => cfg.NoticesIntervalSeconds).InclusiveBetween(1, 60);
     }
 }

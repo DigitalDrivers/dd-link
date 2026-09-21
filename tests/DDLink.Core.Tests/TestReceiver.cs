@@ -15,6 +15,9 @@ public sealed class TestReceiver : IDisposable
     /// <summary>What the platform's ban list says (GET .../bans); requests for it are kept apart from the messages.</summary>
     public IReadOnlyList<ulong> Bans { get; set; } = [];
     public ConcurrentQueue<Received> BanRequests { get; } = new();
+    /// <summary>What the platform's notices say (GET .../notices), the whole answer; and the query of each request for them.</summary>
+    public string Notices { get; set; } = "{\"notices\":[]}";
+    public ConcurrentQueue<(string Query, Received Request)> NoticeRequests { get; } = new();
 
     public static int FreePort()
     {
@@ -48,6 +51,15 @@ public sealed class TestReceiver : IDisposable
             {
                 BanRequests.Enqueue(new Received(buffer.ToArray(), context.Request.Headers["X-DD-Timestamp"], context.Request.Headers["X-DD-Signature"]));
                 var answer = System.Text.Encoding.UTF8.GetBytes($"{{\"steamIds\":[{string.Join(",", Bans.Select(id => $"\"{id}\""))}]}}");
+                context.Response.ContentType = "application/json";
+                await context.Response.OutputStream.WriteAsync(answer);
+                context.Response.Close();
+                continue;
+            }
+            if (context.Request.HttpMethod == "GET" && context.Request.Url!.AbsolutePath.EndsWith("/notices"))
+            {
+                NoticeRequests.Enqueue((context.Request.Url.Query, new Received(buffer.ToArray(), context.Request.Headers["X-DD-Timestamp"], context.Request.Headers["X-DD-Signature"])));
+                var answer = System.Text.Encoding.UTF8.GetBytes(Notices);
                 context.Response.ContentType = "application/json";
                 await context.Response.OutputStream.WriteAsync(answer);
                 context.Response.Close();

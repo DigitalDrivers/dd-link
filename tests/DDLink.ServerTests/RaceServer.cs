@@ -115,6 +115,10 @@ public sealed class RaceServer : IAsyncDisposable
             LiveIntervalMilliseconds: 250
             BansEndpoint: http://127.0.0.1:{receiverPort}/api/link/bans
             BansIntervalSeconds: 2
+            NoticesEndpoint: http://127.0.0.1:{receiverPort}/api/link/notices
+            NoticesIntervalSeconds: 1
+            BriefingTitle: TEST RACE
+            BriefingText: Qualifying 10 min, race 8 laps.
             Secret: {Secret}
             EventId: server-test-event
             ServerId: server-test

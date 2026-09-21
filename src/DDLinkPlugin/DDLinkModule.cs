@@ -12,5 +12,6 @@ public class DDLinkModule : AssettoServerModule<DDLinkConfiguration>
         builder.RegisterType<DDLinkService>().AsSelf().As<IHostedService>().SingleInstance();
         builder.RegisterType<DDLinkLiveService>().AsSelf().As<IHostedService>().SingleInstance();
         builder.RegisterType<DDLinkBanService>().AsSelf().As<IHostedService>().SingleInstance();
+        builder.RegisterType<DDLinkNoticeService>().AsSelf().As<IHostedService>().SingleInstance();
     }
 }
