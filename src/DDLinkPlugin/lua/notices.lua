@@ -46,7 +46,16 @@ local ready = ac.OnlineEvent({
 }, function () end)
 ready({})
 
+-- Whether the game shows its menu (setup, pits), where nothing a script draws is seen: notices wait until the
+-- driver is out on track, so the briefing is not over before the driver has read it. A patch that does not
+-- know the field shows them right away.
+local function inMenu()
+  local ok, value = pcall(function () return ac.getSim().isInMainMenu end)
+  return ok and value == true
+end
+
 function script.update(dt)
+  if inMenu() then return end
   if current == nil and #queue > 0 then
     current = table.remove(queue, 1)
     shownFor = 0
@@ -58,7 +67,7 @@ function script.update(dt)
 end
 
 function script.drawUI()
-  if current == nil then return end
+  if current == nil or inMenu() then return end
   local alpha = math.max(0, math.min(1, shownFor / fadeSeconds, (showSeconds - shownFor) / fadeSeconds))
   local sim = ac.getSim()
   local width = math.min(620, sim.windowWidth - 40)
