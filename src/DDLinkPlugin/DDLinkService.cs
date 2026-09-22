@@ -2,6 +2,7 @@ using AssettoServer.Network.Tcp;
 using AssettoServer.Server;
 using AssettoServer.Server.Configuration;
 using AssettoServer.Shared.Model;
+using AssettoServer.Shared.Network.Packets.Incoming;
 using DDLink.Core;
 using Microsoft.Extensions.Hosting;
 using Serilog;
@@ -19,24 +20,33 @@ public class DDLinkService : BackgroundService
     private readonly SessionManager _sessionManager;
     private readonly EntryCarManager _entryCarManager;
     private readonly SpectatorSlots _spectators;
+    private readonly BrakeTests _brakeTests;
     private readonly Outbox _outbox;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(30) };
 
     private readonly object _lock = new();
     private List<LapEntry> _laps = [];
-    private List<CollisionEntry> _collisions = [];
+    private List<Contact> _collisions = [];
     private List<ConnectionEntry> _connections = [];
     private StintLedger _ledger = new();
     private readonly SemaphoreSlim _wakeUp = new(0);
+
+    // A contact as it happened: which cars, when on the server's clock, and whether either braked for no reason.
+    private sealed record Contact(CollisionEntry Entry, byte Car, byte? Other, long AtMs, bool Braked, bool OtherBraked);
+
+    // Whoever is in the pit lane from shortly before to 20 seconds after a contact was slowing down for the pit entry.
+    private bool PittedAround(byte car, long atMs) => _brakeTests.UsedThePitLane(car, atMs - 5_000, atMs + 20_000);
 
     public DDLinkService(
         DDLinkConfiguration configuration,
         ACServerConfiguration serverConfiguration,
         SessionManager sessionManager,
         EntryCarManager entryCarManager,
-        SpectatorSlots spectators)
+        SpectatorSlots spectators,
+        BrakeTests brakeTests)
     {
         _spectators = spectators;
+        _brakeTests = brakeTests;
         _configuration = configuration;
         _serverConfiguration = serverConfiguration;
         _sessionManager = sessionManager;
@@ -100,6 +110,7 @@ public class DDLinkService : BackgroundService
             _connections.Add(new ConnectionEntry(client.Guid.ToString(), client.Name ?? "", false, SessionTime));
             ledger = _ledger;
         }
+        _brakeTests.Forget(client.SessionId);
         var result = _sessionManager.CurrentSession.Results?[client.SessionId];
         if (result != null && result.Guid == client.Guid)
             ledger.DriverLeft(client.SessionId, SnapshotOf(result));
@@ -120,21 +131,35 @@ public class DDLinkService : BackgroundService
             ledger.LapCompleted(client.SessionId, client.Guid, client.Name ?? "", SnapshotOf(result));
     }
 
+    private void OnPositionUpdate(EntryCar sender, in PositionUpdateIn update) => _brakeTests.Moved(sender.SessionId,
+        _sessionManager.ServerTimeMilliseconds, update.Position, update.Velocity, update.Rotation.X, update.NormalizedPosition);
+
     private void OnCollision(ACTcpClient client, CollisionEventArgs args)
     {
         var other = args.TargetCar?.Client?.Guid.ToString();
+        var now = _sessionManager.ServerTimeMilliseconds;
+        // Judged now, while the seconds before the contact are still known; the pit lane is looked at in the report.
+        var target = args.TargetCar?.SessionId;
+        var braked = target is { } t && _brakeTests.BrakedWithoutReason(client.SessionId, t, now);
+        var otherBraked = target is { } o && _brakeTests.BrakedWithoutReason(o, client.SessionId, now);
+        _brakeTests.Collided(client.SessionId, target, now);
+        if (braked || otherBraked)
+            Log.Information("DD Link: {Name} braked hard for no reason before the contact between {Reporter} and {Other}",
+                braked ? client.Name : args.TargetCar?.Client?.Name, client.Name, args.TargetCar?.Client?.Name);
+
+        var entry = new CollisionEntry(client.Guid.ToString(), other, args.Speed,
+            args.Position.X, args.Position.Y, args.Position.Z,
+            args.RelPosition.X, args.RelPosition.Y, args.RelPosition.Z, SessionTime);
         lock (_lock)
         {
-            _collisions.Add(new CollisionEntry(client.Guid.ToString(), other, args.Speed,
-                args.Position.X, args.Position.Y, args.Position.Z,
-                args.RelPosition.X, args.RelPosition.Y, args.RelPosition.Z, SessionTime));
+            _collisions.Add(new Contact(entry, client.SessionId, target, now, braked, otherBraked));
         }
     }
 
     private void OnSessionChanged(SessionManager sender, SessionChangedEventArgs args)
     {
         List<LapEntry> laps;
-        List<CollisionEntry> collisions;
+        List<Contact> contacts;
         List<ConnectionEntry> connections;
         StintLedger ledger;
         var nextLedger = new StintLedger();
@@ -147,7 +172,7 @@ public class DDLinkService : BackgroundService
         lock (_lock)
         {
             (laps, _laps) = (_laps, []);
-            (collisions, _collisions) = (_collisions, []);
+            (contacts, _collisions) = (_collisions, []);
             (connections, _connections) = (_connections, []);
             (ledger, _ledger) = (_ledger, nextLedger);
         }
@@ -181,6 +206,12 @@ public class DDLinkService : BackgroundService
         var session = new SessionInfo(kind, previous.Configuration.Name ?? "", _serverConfiguration.CSPTrackOptions.Track, server.TrackConfig,
             previous.Configuration.Laps, previous.Configuration.Time, previous.SessionTimeMilliseconds);
 
+        var collisions = contacts.Select(c => c.Entry with
+        {
+            BrakeTest = c.Braked && !PittedAround(c.Car, c.AtMs),
+            OtherBrakeTest = c.OtherBraked && c.Other is { } other && !PittedAround(other, c.AtMs),
+        }).ToList();
+
         var message = SessionReport.Create(_configuration.EventId, _configuration.ServerId, session, results, laps, collisions, connections);
         if (message != null)
             _ = EnqueueAsync(message);
@@ -200,9 +231,15 @@ public class DDLinkService : BackgroundService
         }
     }
 
-    // Delivery loop: send what is pending, back off while the platform is unreachable.
+    // Watches the cars, then the delivery loop: send what is pending, back off while the platform is unreachable.
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Every car's movements, to tell a brake test from a car that had to slow down. The entry cars exist once the server has started.
+        while (_entryCarManager.EntryCars.Length == 0)
+            await Task.Delay(500, stoppingToken);
+        foreach (var car in _entryCarManager.EntryCars.Where(car => !_spectators.Contains(car.SessionId)))
+            car.PositionUpdateReceived += OnPositionUpdate;
+
         var failedAttempts = 0;
         while (!stoppingToken.IsCancellationRequested)
         {

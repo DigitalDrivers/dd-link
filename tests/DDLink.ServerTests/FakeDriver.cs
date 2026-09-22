@@ -26,19 +26,31 @@ public sealed class FakeDriver : IAsyncDisposable
     private byte _sequence;
     private float _spline;
     private byte _lap;
+    private Vector3 _position;
 
-    private FakeDriver(TcpClient tcp, UdpClient udp, byte sessionId)
+    // The track is a circle of 500 m radius.
+    private const float Radius = 500f;
+    private static readonly float LapLength = MathF.Tau * Radius;
+
+    /// <summary>How fast the car goes, in m/s.</summary>
+    public float Speed { get; set; } = 50f;
+
+    /// <summary>How hard the car brakes, in m/s²: it loses this much speed every second until it is set back to 0.</summary>
+    public float Braking { get; set; }
+
+    private FakeDriver(TcpClient tcp, UdpClient udp, byte sessionId, float spline)
     {
         _tcp = tcp;
         _udp = udp;
         _sessionId = sessionId;
+        _spline = spline;
     }
 
     /// <summary>
     /// Asks for a car. Returns the driver once the server treats it as connected and on track, or null
     /// with the server's answer (e.g. <see cref="NoSlot"/>) when it refuses.
     /// </summary>
-    public static async Task<(FakeDriver? Driver, byte Answer)> JoinAsync(int port, ulong steamId, string name, string carModel, byte expectedSlot)
+    public static async Task<(FakeDriver? Driver, byte Answer)> JoinAsync(int port, ulong steamId, string name, string carModel, byte expectedSlot, float spline = 0f)
     {
         var tcp = new TcpClient { NoDelay = true };
         await tcp.ConnectAsync(IPAddress.Loopback, port);
@@ -76,7 +88,7 @@ public sealed class FakeDriver : IAsyncDisposable
 
         var udp = new UdpClient();
         udp.Connect(IPAddress.Loopback, port);
-        var driver = new FakeDriver(tcp, udp, expectedSlot);
+        var driver = new FakeDriver(tcp, udp, expectedSlot, spline);
         await driver.AssociateUdpAsync();
         driver._loops.Add(driver.DriveAsync());
         driver._loops.Add(driver.AnswerPingsAsync());
@@ -104,17 +116,21 @@ public sealed class FakeDriver : IAsyncDisposable
         throw new InvalidOperationException("The server did not accept the UDP connection of the car");
     }
 
-    // 20 position updates a second: round the lap at 180 km/h, on a circle so the map has something to draw.
+    // 20 position updates a second: round the lap at 180 km/h unless told otherwise, on a circle so the map has
+    // something to draw, pointing where the car goes (the game's heading: the car points along (-sin, 0, cos) of it).
     private async Task DriveAsync()
     {
         var buffer = new byte[256];
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(50));
         while (await timer.WaitForNextTickAsync(_stop.Token))
         {
-            _spline = (_spline + 0.002f) % 1f;
+            Speed = MathF.Max(0f, Speed - Braking * 0.05f);
+            _spline = (_spline + Speed * 0.05f / LapLength) % 1f;
             var angle = _spline * MathF.Tau;
-            var update = new PositionUpdateIn(_sequence++, (uint)Environment.TickCount, new Vector3(MathF.Cos(angle) * 500, 0, MathF.Sin(angle) * 500),
-                Vector3.Zero, new Vector3(50, 0, 0), 100, 100, 100, 100, 127, 127, 7200, 5, 0, 0, 220, _spline);
+            _position = new Vector3(MathF.Cos(angle) * Radius, 0, MathF.Sin(angle) * Radius);
+            var velocity = new Vector3(-MathF.Sin(angle), 0, MathF.Cos(angle)) * Speed;
+            var update = new PositionUpdateIn(_sequence++, (uint)Environment.TickCount, _position,
+                new Vector3(angle, 0, 0), velocity, 100, 100, 100, 100, 127, 127, 7200, 5, 0, 0, 220, _spline);
             var writer = new PacketWriter(buffer);
             var length = writer.WritePacket(update);
             await _udp.SendAsync(buffer.AsMemory(0, length), _stop.Token);
@@ -165,6 +181,23 @@ public sealed class FakeDriver : IAsyncDisposable
         writer.Write(++_lap);
         await writer.SendAsync();
         _spline = 0;
+    }
+
+    /// <summary>
+    /// Reports a contact with another car the way the game does: the impact's speed and where it hit this car, in
+    /// the car's own coordinates (z forward).
+    /// </summary>
+    public async Task CollideAsync(byte otherSlot, float speedKmh, Vector3 relPosition)
+    {
+        var writer = new PacketWriter(_tcp.GetStream(), _tcpBuffer);
+        writer.Write((byte)ACServerProtocol.ClientEvent);
+        writer.Write<short>(1);
+        writer.Write((byte)ClientEventType.CollisionWithCar);
+        writer.Write(otherSlot);
+        writer.Write(speedKmh);
+        writer.Write(_position);
+        writer.Write(relPosition);
+        await writer.SendAsync();
     }
 
     /// <summary>Leaves the server the clean way, as when the driver clicks "exit" in the pits.</summary>

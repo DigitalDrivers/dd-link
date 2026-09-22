@@ -63,7 +63,7 @@ Delivery is at-least-once and in order: while one message cannot be delivered, l
     { "steamId": "76561198000000001", "lapNumber": 1, "lapTimeMs": 112300, "cuts": 0, "sessionTimeMs": 118000 }
   ],
   "collisions": [
-    { "steamId": "76561198000000001", "otherSteamId": null, "speedKmh": 42.5, "x": 1.0, "y": 2.0, "z": 3.0, "relX": 0.1, "relY": 0.4, "relZ": 1.9, "sessionTimeMs": 60000 }
+    { "steamId": "76561198000000001", "otherSteamId": null, "speedKmh": 42.5, "x": 1.0, "y": 2.0, "z": 3.0, "relX": 0.1, "relY": 0.4, "relZ": 1.9, "sessionTimeMs": 60000, "brakeTest": false, "otherBrakeTest": false }
   ],
   "connections": [
     { "steamId": "76561198000000002", "name": "Driver 2", "connected": false, "sessionTimeMs": 400000 }
@@ -80,6 +80,13 @@ Delivery is at-least-once and in order: while one message cannot be delivered, l
   of one contact therefore tell which part of each car was involved (a nose against a rear, two sides, ...).
   Which sign is the front of the car is the game's business and not documented; whoever reads this compares
   the two reports with each other rather than trusting an absolute meaning.
+- `brakeTest` is `true` when this car braked hard for no reason in the 2.5 seconds before the contact, and
+  `otherBrakeTest` when the other car did. For that, the car lost at least 30 km/h, braking at 0.8 g or more; it
+  ended up below 70 % of the speed the field usually has at that point of the lap (the median of the last 15
+  passes, at least 5 needed); it pointed where it went all the while (no spin); no car within 200 m ahead was
+  stopped or that slow; it had touched no wall and no third car in the 5 seconds before; and it was not in the
+  pit lane from 5 seconds before to 20 seconds after the contact (the pit lane comes from `lua/telemetry.lua`,
+  so it needs `LiveEndpoint`). Anything in doubt is `false`.
 - `bestLapMs` is `null` when the driver set no lap time.
 - `gridPosition` is the starting position among the drivers in the message (1 = pole). It is `null` outside races.
 - `crew` lists everyone who drove the car in the session, in the order of their first stint, with the laps

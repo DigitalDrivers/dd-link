@@ -23,6 +23,7 @@ public class DDLinkLiveService : BackgroundService
     private readonly SessionManager _sessionManager;
     private readonly EntryCarManager _entryCarManager;
     private readonly SpectatorSlots _spectatorSlots;
+    private readonly BrakeTests _brakeTests;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(3) };
 
     private readonly object _lock = new();
@@ -46,9 +47,11 @@ public class DDLinkLiveService : BackgroundService
         EntryCarManager entryCarManager,
         CSPServerScriptProvider scriptProvider,
         CSPClientMessageTypeManager clientMessageTypes,
-        SpectatorSlots spectatorSlots)
+        SpectatorSlots spectatorSlots,
+        BrakeTests brakeTests)
     {
         _spectatorSlots = spectatorSlots;
+        _brakeTests = brakeTests;
         _configuration = configuration;
         _serverConfiguration = serverConfiguration;
         _sessionManager = sessionManager;
@@ -73,6 +76,9 @@ public class DDLinkLiveService : BackgroundService
             first = !_telemetry.ContainsKey(sender.SessionId);
             _telemetry[sender.SessionId] = (telemetry, _sessionManager.ServerTimeMilliseconds);
         }
+        // Slowing down for the pit entry is no brake test.
+        if (telemetry.InPitLane)
+            _brakeTests.InPitLane(sender.SessionId, _sessionManager.ServerTimeMilliseconds);
         if (first)
             Log.Information("DD Link: {Name} reports telemetry, {Fuel:F1} of {MaxFuel:F0} litres of fuel", sender.Name, telemetry.FuelLitres, telemetry.MaxFuelLitres);
     }

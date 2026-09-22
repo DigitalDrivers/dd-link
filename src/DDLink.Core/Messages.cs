@@ -51,7 +51,10 @@ public sealed record LapEntry(string SteamId, uint LapNumber, uint LapTimeMs, in
 /// <param name="RelY">upwards,</param>
 /// <param name="RelZ">and along the car. Which end of the car is which sign is the game's business; the
 /// platform only compares the two reports of one contact with each other.</param>
-public sealed record CollisionEntry(string SteamId, string? OtherSteamId, float SpeedKmh, float X, float Y, float Z, float RelX, float RelY, float RelZ, long SessionTimeMs);
+/// <param name="BrakeTest">This car braked hard for no reason just before the contact (see <see cref="BrakeTests"/>).</param>
+/// <param name="OtherBrakeTest">The other car did.</param>
+public sealed record CollisionEntry(string SteamId, string? OtherSteamId, float SpeedKmh, float X, float Y, float Z, float RelX, float RelY, float RelZ, long SessionTimeMs,
+    bool BrakeTest = false, bool OtherBrakeTest = false);
 
 public sealed record ConnectionEntry(string SteamId, string Name, bool Connected, long SessionTimeMs);
 
